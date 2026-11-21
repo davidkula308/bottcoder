@@ -142,7 +142,7 @@ export function recordResult(
   note: string,
   now: number,
 ): { state: ProjectState; action: RoundAction } {
-  let action: RoundAction = "retry";
+  let action = "retry" as RoundAction;
   const tasks = state.tasks.map((t) => {
     if (t.id !== taskId) return t;
     const attempts = t.attempts + 1;
