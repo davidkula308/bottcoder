@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.1.1}"
+VERSION="${VERSION:-1.1.2}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"
@@ -20,10 +20,11 @@ cat > "$STAGE/package.json" <<JSON
 { "name": "nightshift-coder", "productName": "NightShift Coder", "version": "$VERSION", "description": "Offline AI coding bot", "main": "electron/main.cjs", "author": "NightShift Coder", "license": "MIT" }
 JSON
 
+# --no-asar: typer.ps1 and the add-on file must stay real files on disk.
 "$TOOLS/node_modules/.bin/electron-packager" "$STAGE" "NightShift Coder" --platform=win32 --arch=x64 \
   --electron-version="$ELECTRON" --icon="$ROOT/electron/icon.ico" --app-version="$VERSION" \
   --win32metadata.ProductName="NightShift Coder" --win32metadata.FileDescription="NightShift Coder" \
-  --out="$OUT" --overwrite
+  --out="$OUT" --overwrite --no-asar
 
 makensis -V2 -DSRC="$OUT/NightShift Coder-win32-x64" -DOUT="$OUT/NightShift-Coder-Setup-$VERSION.exe" -DVERSION="$VERSION" "$ROOT/installer/nightshift.nsi"
 echo "Built: $OUT/NightShift-Coder-Setup-$VERSION.exe"

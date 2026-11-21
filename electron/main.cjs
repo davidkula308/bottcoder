@@ -1,5 +1,5 @@
 // NightShift Coder — Electron main process (Windows-first, also works on Linux/macOS).
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, powerSaveBlocker } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, powerSaveBlocker, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -343,11 +343,20 @@ ipcMain.handle("app:flags", () => ({ launchedAtStartup: launchedHidden }));
 
 ipcMain.handle("ai:pull", async (event, req) => {
   const base = (req.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
-  const res = await fetch(`${base}/api/pull`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: req.model, name: req.model, stream: true }),
-  });
+  event.sender.send("ai:pullProgress", { id: req.id, text: { status: "starting Ollama…", percent: null } });
+  if (!(await ensureOllama(base, 20))) {
+    throw new Error("Ollama isn't installed or won't start. Install Ollama first, then try again.");
+  }
+  let res;
+  try {
+    res = await fetch(`${base}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: req.model, name: req.model, stream: true }),
+    });
+  } catch {
+    throw new Error("Couldn't reach Ollama. Open Ollama from the Start Menu, then try again.");
+  }
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
   let failed = null;
   await readStream(res, (line) => {
@@ -358,7 +367,10 @@ ipcMain.handle("ai:pull", async (event, req) => {
       event.sender.send("ai:pullProgress", { id: req.id, text: { status: j.status || j.error || "", percent } });
     } catch {}
   });
-  if (failed) throw new Error(failed);
+  if (failed) {
+    if (/no such host|dial tcp|timeout|connection/i.test(failed)) throw new Error(`no internet connection to the model library (${failed})`);
+    throw new Error(failed);
+  }
 });
 
 /* ---------------- Project files ---------------- */
@@ -507,6 +519,119 @@ ipcMain.handle("setup:check", async (_e, ollamaUrl) => {
     cpu: os.cpus()[0]?.model || "unknown",
     cores: os.cpus().length,
   };
+});
+
+/* ---------------- Ollama install (no winget needed) ---------------- */
+
+const OLLAMA_SETUP_URL = "https://ollama.com/download/OllamaSetup.exe";
+
+function ollamaDefaultExe() {
+  return expand("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe");
+}
+
+async function ollamaUp(base) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch(`${base}/api/version`, { signal: ctrl.signal });
+    clearTimeout(t);
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function findOllama() {
+  if (isWin && fs.existsSync(ollamaDefaultExe())) return ollamaDefaultExe();
+  const w = firstLine(await run(`${isWin ? "where" : "which"} ollama`));
+  return w && fs.existsSync(w) ? w : null;
+}
+
+/** Makes sure the Ollama service answers; starts it if it is installed but not running. */
+async function ensureOllama(base, waitSec) {
+  if (await ollamaUp(base)) return true;
+  await refreshPath();
+  const exe = await findOllama();
+  if (!exe) return false;
+  try {
+    spawn(exe, ["serve"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } catch {}
+  for (let i = 0; i < waitSec; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await ollamaUp(base)) return true;
+  }
+  return false;
+}
+
+ipcMain.handle("setup:installOllama", async (event, { id, ollamaUrl }) => {
+  const base = (ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
+  const send = (status, percent) => event.sender.send("setup:progress", { id, text: { status, percent } });
+  if (await ensureOllama(base, 5)) {
+    send("already installed and running", 100);
+    return true;
+  }
+  if (!isWin) throw new Error("Automatic install is for Windows. Get Ollama from ollama.com/download.");
+
+  // 1. Download the official installer (uses the PC's normal internet settings, incl. proxy).
+  const file = path.join(os.tmpdir(), "OllamaSetup.exe");
+  send("downloading Ollama…", 0);
+  let res;
+  try {
+    res = await net.fetch(OLLAMA_SETUP_URL);
+  } catch (e) {
+    throw new Error(`couldn't download Ollama — check the internet connection (${e.message})`);
+  }
+  if (!res.ok) throw new Error(`couldn't download Ollama (server said ${res.status})`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  const out = fs.createWriteStream(file);
+  const reader = res.body.getReader();
+  let got = 0;
+  let lastPct = -1;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    got += value.length;
+    if (!out.write(Buffer.from(value))) await new Promise((r) => out.once("drain", r));
+    const pct = total ? Math.floor((got / total) * 100) : null;
+    if (pct !== lastPct) {
+      lastPct = pct;
+      send(`downloading Ollama… ${(got / 1024 ** 2).toFixed(0)} MB${total ? ` of ${(total / 1024 ** 2).toFixed(0)} MB` : ""}`, pct);
+    }
+  }
+  await new Promise((r, j) => out.end((err) => (err ? j(err) : r())));
+  if (got < 5 * 1024 ** 2) throw new Error("the Ollama download was incomplete — try again");
+
+  // 2. Run it silently. It installs for this user only, so no admin rights are needed.
+  send("installing Ollama… (about a minute)", null);
+  const code = await new Promise((resolve) => {
+    const p = spawn(file, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"], { windowsHide: true });
+    const timer = setTimeout(() => resolve("timeout"), 10 * 60 * 1000);
+    p.on("error", (e) => {
+      clearTimeout(timer);
+      resolve(e.message);
+    });
+    p.on("close", (c) => {
+      clearTimeout(timer);
+      resolve(c);
+    });
+  });
+  if (code !== 0) {
+    // Fall back to the normal setup window so the user can click through it.
+    send("silent install didn't finish — opening the Ollama setup window", null);
+    shell.openPath(file);
+    throw new Error(`the silent install stopped (${code}). Finish the Ollama setup window that just opened, then click Re-check.`);
+  }
+
+  // 3. Start it and wait until it answers.
+  send("starting Ollama…", null);
+  if (!(await ensureOllama(base, 30))) {
+    throw new Error("Ollama installed but didn't start. Open Ollama from the Start Menu, then click Re-check.");
+  }
+  try {
+    fs.unlinkSync(file);
+  } catch {}
+  send("installed and running", 100);
+  return true;
 });
 
 /* ---------------- Live typing (VS Code add-on) ---------------- */

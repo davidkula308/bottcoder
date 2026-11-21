@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("nightshift", {
   },
   setup: {
     check: (ollamaUrl) => ipcRenderer.invoke("setup:check", ollamaUrl),
+    installOllama: (ollamaUrl, onProgress) => stream("setup:installOllama", "setup:progress", { ollamaUrl }, onProgress),
   },
   keyboard: {
     type: (text, mustContain, cps) => ipcRenderer.invoke("kb:type", { text, mustContain, cps }),

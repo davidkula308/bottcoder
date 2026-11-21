@@ -226,32 +226,65 @@ export function SetupHelper({
   const rec = report ? recommendModel(report.ramGB) : null;
   const modelReady = report ? hasModel(report.models, ai.model) : false;
 
+  const [ollamaProg, setOllamaProg] = useState<{ status: string; percent: number | null } | null>(null);
+
+  /** Electron wraps errors as "Error invoking remote method 'x': Error: …"; keep only the readable part. */
+  const plain = (e: unknown) =>
+    String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, "");
+
+  const download = async (): Promise<boolean> => {
+    setPull({ status: "starting", percent: 0 });
+    try {
+      await bridge.ai.pull({ ollamaUrl: ai.ollamaUrl, model: ai.model }, setPull);
+      setPull({ status: "done", percent: 100 });
+      await check();
+      return true;
+    } catch (e) {
+      setPull({ status: `failed: ${plain(e)}`, percent: null });
+      await check();
+      return false;
+    }
+  };
+
+  /** Installs Ollama without winget: the app downloads the official installer and runs it for this user. */
+  const installOllama = async (): Promise<boolean> => {
+    setBusy("ollama");
+    setOllamaProg({ status: "starting…", percent: 0 });
+    try {
+      await bridge.setup.installOllama(ai.ollamaUrl, setOllamaProg);
+      setOllamaProg(null);
+      return true;
+    } catch (e) {
+      setOllamaProg({ status: `failed: ${plain(e)}`, percent: null });
+      return false;
+    } finally {
+      setBusy(null);
+      await check();
+    }
+  };
+
   const install = async (id: (typeof TOOLS)[number]["id"]) => {
     const tool = TOOLS.find((t) => t.id === id);
     if (!tool || !report) return;
+    if (id === "ollama") {
+      // Finish the job: once the AI engine is up, fetch the chosen model straight away.
+      if ((await installOllama()) && ai.provider === "ollama") await download();
+      return;
+    }
     if (!report.winget) {
       await bridge.system.openUrl(tool.url);
       return;
     }
     setBusy(id);
     await runInTerminal(wingetCommand(tool), 1800);
-    const fresh = await check();
     setBusy(null);
-    // Finish the job: once the AI engine is up, fetch the chosen model straight away.
-    if (id === "ollama" && fresh?.ollama.running && ai.provider === "ollama" && !hasModel(fresh.models, ai.model)) {
-      await download();
-    }
+    await check();
   };
 
-  const download = async () => {
-    setPull({ status: "starting", percent: 0 });
-    try {
-      await bridge.ai.pull({ ollamaUrl: ai.ollamaUrl, model: ai.model }, setPull);
-      setPull({ status: "done", percent: 100 });
-    } catch (e) {
-      setPull({ status: `failed: ${(e as Error).message}`, percent: null });
-    }
-    await check();
+  /** One button for everything the AI needs: Ollama first if missing, then the model. */
+  const getModel = async () => {
+    if (report && !report.ollama.installed && !(await installOllama())) return;
+    await download();
   };
 
   return (
@@ -284,22 +317,33 @@ export function SetupHelper({
                     {t.label} {t.id === "git" && <span className="text-xs text-muted-foreground">(recommended)</span>}
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{detail}</div>
-                  {busy === t.id && (
+                  {t.id === "ollama" && ollamaProg && (
+                    <div className="mt-1 space-y-1">
+                      <div className={`text-[11px] ${ollamaProg.status.startsWith("failed") ? "text-warn" : "text-muted-foreground"}`}>
+                        {ollamaProg.status}
+                      </div>
+                      {ollamaProg.percent !== null && !ollamaProg.status.startsWith("failed") && (
+                        <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                          <div className="h-full bg-primary transition-all" style={{ width: `${ollamaProg.percent}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {busy === t.id && t.id !== "ollama" && (
                     <div className="text-[11px] text-muted-foreground">
                       Progress shows in the Terminal tab. If Windows asks for permission, click Yes.
-                      {t.id === "ollama" && " The AI model downloads right after."}
                     </div>
                   )}
                 </div>
                 {!ok && (
                   <div className="flex shrink-0 items-center gap-1">
-                    {report.winget && (
+                    {(report.winget || t.id === "ollama") && (
                       <Button variant="ghost" size="sm" className="h-7 px-2" title={`Download from ${t.url}`} onClick={() => bridge.system.openUrl(t.url)}>
                         <ExternalLink />
                       </Button>
                     )}
                     <Button variant="panel" size="sm" disabled={busy !== null} onClick={() => install(t.id)}>
-                      {report.winget ? (busy === t.id ? "Installing…" : "Install") : (<><ExternalLink /> Get</>)}
+                      {t.id === "ollama" || report.winget ? (busy === t.id ? "Installing…" : "Install") : (<><ExternalLink /> Get</>)}
                     </Button>
                   </div>
                 )}
@@ -333,7 +377,13 @@ export function SetupHelper({
               <div className="min-w-0 flex-1">
                 <div className="text-sm">AI model {ai.model}</div>
                 <div className="font-mono text-[11px] text-muted-foreground">
-                  {modelReady ? "downloaded — works offline" : pull ? pull.status : "not downloaded yet (needs internet once)"}
+                  {modelReady
+                    ? "downloaded — works offline"
+                    : pull
+                      ? pull.status
+                      : report.ollama.installed
+                        ? "not downloaded yet (needs internet once)"
+                        : "not downloaded yet — Download installs Ollama too"}
                 </div>
                 {pull && pull.percent !== null && pull.status !== "done" && (
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
@@ -342,7 +392,7 @@ export function SetupHelper({
                 )}
               </div>
               {!modelReady && (
-                <Button variant="panel" size="sm" disabled={!report.ollama.running || (pull !== null && pull.status !== "done" && !pull.status.startsWith("failed"))} onClick={download}>
+                <Button variant="panel" size="sm" disabled={busy !== null || (pull !== null && pull.status !== "done" && !pull.status.startsWith("failed"))} onClick={getModel}>
                   <Download /> Download
                 </Button>
               )}

@@ -66,6 +66,8 @@ export interface DesktopBridge {
   };
   setup: {
     check(ollamaUrl: string): Promise<SetupReport>;
+    /** Downloads the official Ollama installer, installs it silently for this user and starts it. */
+    installOllama(ollamaUrl: string, onProgress: (p: PullProgress) => void): Promise<boolean>;
   };
   keyboard: {
     /** Types text with real keystrokes, only while a window whose title contains `mustContain` is in front. */
@@ -341,6 +343,13 @@ export const demoBridge: DesktopBridge = {
         cpu: "Intel(R) Core(TM) i5-8250U",
         cores: 8,
       };
+    },
+    async installOllama(_url, onProgress) {
+      for (let p = 0; p <= 100; p += 20) {
+        onProgress({ status: p < 100 ? `downloading Ollama… ${p}%` : "installed and running", percent: p });
+        await sleep(250);
+      }
+      return true;
     },
   },
   ide: {
