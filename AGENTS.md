@@ -28,3 +28,10 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Architecture
+- The whole app UI lives in `src/app/` (Dashboard) and is mounted both by `src/routes/index.tsx` (web preview) and `electron/renderer/main.tsx` (desktop), so both stay identical.
+- All PC access (terminal, files, processes, startup, editors, AI streaming) goes through `window.nightshift` exposed by `electron/preload.cjs`; `src/app/bridge.ts` defines the contract and a simulated bridge for the browser preview. Never use Node APIs in `src/`.
+- Pure rules (session timing, schedules, prompt building, code parsing) stay in `src/app/engine.ts` with tests in `engine.test.ts`.
+- Desktop UI is built with `vite.electron.config.ts` (`base: "./"` for file://) and packaged with @electron/packager from a clean staging folder outside the project.
+- AI runs from the Electron main process (no CORS, keys never reach the page); default engine is a CPU-friendly local Ollama model, NVIDIA NIM is optional.
