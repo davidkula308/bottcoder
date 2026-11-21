@@ -57,6 +57,11 @@ export interface DesktopBridge {
     read(root: string, rel: string): Promise<string | null>;
     exists(root: string, rel: string): Promise<boolean>;
     remove(root: string, rel: string): Promise<void>;
+    /** Fresh temporary folder for code that is tested and then thrown away. */
+    scratchDir(): Promise<string>;
+    clearScratch(): Promise<void>;
+    /** Documents\NightShift\workspace, created if needed. */
+    defaultWorkspace(): Promise<string>;
   };
   terminal: {
     run(cmd: string, cwd: string, timeoutSec: number, onData: (text: string) => void): Promise<number | null>;
@@ -290,6 +295,13 @@ export const demoBridge: DesktopBridge = {
     },
     async remove(_root, rel) {
       for (const k of Object.keys(demoFiles)) if (k === rel || k.startsWith(`${rel}/`)) delete demoFiles[k];
+    },
+    async scratchDir() {
+      return "C:\\Users\\you\\AppData\\Local\\Temp\\NightShift\\scratch";
+    },
+    async clearScratch() {},
+    async defaultWorkspace() {
+      return "C:\\Users\\you\\Documents\\NightShift\\workspace";
     },
   },
   terminal: {

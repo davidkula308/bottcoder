@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("nightshift", {
     read: (root, rel) => ipcRenderer.invoke("fs:read", { root, rel }),
     exists: (root, rel) => ipcRenderer.invoke("fs:exists", { root, rel }),
     remove: (root, rel) => ipcRenderer.invoke("fs:remove", { root, rel }),
+    scratchDir: () => ipcRenderer.invoke("fs:scratchDir"),
+    clearScratch: () => ipcRenderer.invoke("fs:clearScratch"),
+    defaultWorkspace: () => ipcRenderer.invoke("fs:defaultWorkspace"),
   },
   terminal: {
     run: (cmd, cwd, timeoutSec, onData) => stream("term:run", "term:data", { cmd, cwd, timeoutSec }, onData),

@@ -20,3 +20,8 @@
 - [x] During-session "activity apps": every 30/40/custom minutes open a chosen light app, then close it
 - [x] VS Code mode that works end to end: auto-open workspace, auto-install add-on, live typing + terminal mirrored in VS Code
 - [x] Rebuild installer (last manual install) + update feed
+- [ ] On open: offer "optimize for this PC" and set everything up automatically (model, editor, project type, folder, installs)
+- [ ] Remember previous sessions (history list + continue a session cut off by closing the app)
+- [ ] Never blocked: if the AI or tools are missing, keep writing varied practice code on screen (not saved, no repeats)
+- [ ] Start Coding asks for typing speed (human, fast typist, quick, as fast as possible, custom)
+- [ ] "Keep files" switch: off = test in the terminal, then throw the code away

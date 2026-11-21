@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getBridge } from "./bridge";
+import { getBridge, type DesktopBridge } from "./bridge";
 import {
   STUCK_LIMIT,
   buildPrompt,
@@ -13,6 +13,10 @@ import {
 import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, mergeSettings, type LiveMode, type LiveSink } from "./live";
 import { loadProject, runProjectRound } from "./project-runner";
 import type { ProjectState } from "./project";
+import { createPacer } from "./pacer";
+import { writePractice } from "./practice";
+import { hasModel } from "./setup";
+import type { SessionRecord } from "./history";
 
 export type BotStatus = "idle" | "thinking" | "writing" | "running" | "resting" | "error";
 
@@ -22,6 +26,9 @@ export interface WrittenFile {
   language: string;
   at: number;
   exitCode: number | null | undefined;
+  /** false = tested and thrown away, or practice code that was only shown */
+  kept?: boolean;
+  practice?: boolean;
 }
 
 interface Options {
@@ -31,15 +38,67 @@ interface Options {
   followIde: string | null;
   liveMode: LiveMode;
   typingCps: number;
+  /** Typing speed on screen. cps null = as fast as the AI writes. */
+  speed: { cps: number | null; humanLike: boolean };
+  /** false = code is tested in a temporary folder and thrown away. */
+  saveFiles: boolean;
   onTerminal: (text: string) => void;
+  onSessionEnd?: (rec: SessionRecord) => void;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const PRACTICE_KEY = "nightshift:practiceUsed";
+/** Practice code at "as fast as possible" still types visibly. */
+const PRACTICE_MAX_CPS = 90;
+
+function loadUsed(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PRACTICE_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function saveUsed(used: Set<string>) {
+  try {
+    localStorage.setItem(PRACTICE_KEY, JSON.stringify([...used].slice(-5000)));
+  } catch {
+    /* storage full — not important */
+  }
+}
+
+/** Same bridge, but AI text arrives at the chosen typing speed. */
+function withPacing(bridge: DesktopBridge, speed: Options["speed"], alive: () => boolean): DesktopBridge {
+  if (speed.cps === null) return bridge;
+  return {
+    ...bridge,
+    ai: {
+      ...bridge.ai,
+      async generate(req, onChunk) {
+        const pacer = createPacer(speed, onChunk, alive);
+        const full = await bridge.ai.generate(req, (c) => pacer.push(c));
+        await pacer.drain();
+        return full;
+      },
+    },
+  };
+}
+
+/** Is the AI engine usable right now (running, and the model is there)? */
+async function aiReady(bridge: DesktopBridge, ai: AiConfig): Promise<boolean> {
+  if (ai.provider === "nim" && !ai.nimKey.trim()) return false;
+  try {
+    const models = await bridge.ai.listModels({ provider: ai.provider, ollamaUrl: ai.ollamaUrl, nimKey: ai.nimKey });
+    return ai.provider === "nim" ? true : hasModel(models, ai.model);
+  } catch {
+    return false;
+  }
+}
 
 export function useCodingSession(opts: Options) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
   const runRef = useRef(0);
+  const statsRef = useRef({ files: 0, lines: 0, ai: false, practice: false, kept: true, begin: 0, root: "" });
   const [status, setStatus] = useState<BotStatus>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -48,7 +107,8 @@ export function useCodingSession(opts: Options) {
   const [currentFile, setCurrentFile] = useState<{ name: string; language: string } | null>(null);
   const [files, setFiles] = useState<WrittenFile[]>([]);
   const [plan, setPlan] = useState<ProjectState | null>(null);
-  const [message, setMessage] = useState("Ready. Pick a workspace folder and press Start.");
+  const [practice, setPractice] = useState(false);
+  const [message, setMessage] = useState("Ready. Press Start coding.");
 
   useEffect(() => {
     if (!startedAt) return;
@@ -62,198 +122,283 @@ export function useCodingSession(opts: Options) {
   }, []);
 
   const stop = useCallback(async (reason = "Stopped.") => {
+    const wasRunning = statsRef.current.begin > 0;
     runRef.current++;
     setStartedAt(null);
     setStatus("idle");
+    setPractice(false);
     setMessage(reason);
     const b = getBridge();
     await Promise.allSettled([b.ai.cancel(), b.terminal.kill(), b.system.keepAwake(false)]);
+    const st = statsRef.current;
+    if (wasRunning) {
+      statsRef.current = { ...st, begin: 0 };
+      if (!st.kept) b.fs.clearScratch().catch(() => {});
+      optsRef.current.onSessionEnd?.({
+        id: `${st.begin}`,
+        startedAt: st.begin,
+        endedAt: Date.now(),
+        mode: optsRef.current.session.mode,
+        engine: st.ai && st.practice ? "mixed" : st.ai ? "ai" : "practice",
+        files: st.files,
+        lines: st.lines,
+        kept: st.kept,
+        reason,
+      });
+    }
   }, []);
 
-  const makeSink = useCallback(async (): Promise<LiveSink | null> => {
-    const { liveMode, workspace, followIde, typingCps } = optsRef.current;
+  const makeSink = useCallback(async (root: string): Promise<LiveSink | null> => {
+    const { liveMode, followIde, typingCps, speed } = optsRef.current;
     const bridge = getBridge();
     if (liveMode === "addon") {
       const app = await bridge.ide.live.ping();
-      return app ? createAddonSink(bridge, workspace) : null;
+      return app ? createAddonSink(bridge, root) : null;
     }
     if (liveMode === "keyboard") {
       return createKeyboardSink(bridge, {
-        root: workspace,
+        root,
         editor: followIde ?? "notepad",
-        cps: typingCps,
+        cps: speed.cps ?? typingCps,
         onNote: setMessage,
       });
     }
     return null;
   }, []);
 
-  const start = useCallback(async () => {
-    const bridge = getBridge();
-    const myRun = ++runRef.current;
-    const begin = Date.now();
-    setStartedAt(begin);
-    setNow(begin);
-    await bridge.system.keepAwake(true);
-    const history: string[] = [];
-    const failStreak: Record<string, number> = {};
-    let lastOutput: string | undefined;
-    let lastExit: number | null | undefined;
-    let stuckFile: string | undefined;
-    let iter = 0;
-    const alive = () => runRef.current === myRun;
+  /** Built-in practice code: shown on screen only, never saved or run. Works with nothing installed. */
+  const practiceRound = useCallback(async (alive: () => boolean, used: Set<string>) => {
+    const { session, speed } = optsRef.current;
+    const snip = writePractice(Math.random, used);
+    used.add(snip.signature);
+    saveUsed(used);
+    setStatus("writing");
+    setCurrentFile({ name: snip.filename, language: snip.language });
+    setSurface("");
+    let shown = "";
+    const pacer = createPacer(
+      { cps: speed.cps === null ? PRACTICE_MAX_CPS : Math.min(speed.cps, PRACTICE_MAX_CPS * 2), humanLike: speed.humanLike },
+      (c) => {
+        shown += c;
+        setSurface(shown);
+      },
+      alive,
+    );
+    pacer.push(snip.code);
+    await pacer.drain();
+    if (!alive()) return;
+    statsRef.current.files++;
+    statsRef.current.lines += snip.code.split("\n").length;
+    setFiles((f) => [{ filename: snip.filename, path: "", language: snip.language, at: Date.now() + Math.random(), exitCode: undefined, kept: false, practice: true }, ...f].slice(0, 200));
+    setStatus("resting");
+    setMessage(`Practice code: ${snip.filename} (shown only, not saved). Next one in ${session.pauseSeconds}s…`);
+    await sleep(session.pauseSeconds * 1000);
+  }, []);
 
-    const git = { ok: false };
-    {
-      let out = "";
-      const code = await bridge.terminal.run("git --version", optsRef.current.workspace, 15, (t) => (out += t));
-      git.ok = code === 0 && /git version/i.test(out);
-    }
-    {
-      const { liveMode, followIde, workspace } = optsRef.current;
-      if (liveMode === "addon") {
-        // Code is written inside VS Code: open the workspace there and make sure the add-on is listening.
-        const editor = await connectEditor(bridge, { root: workspace, preferred: followIde, onNote: setMessage });
-        if (!alive()) return;
-        setMessage(editor ? `Connected to ${editor} — code will be written there.` : "Coding here; files are still saved to the workspace.");
-      }
-      if (liveMode === "keyboard" && VSCODE_FAMILY.includes(followIde ?? "")) {
-        const existing = await bridge.fs.read(workspace, ".vscode/settings.json");
-        await bridge.fs.writeFile(workspace, ".vscode/settings.json", mergeSettings(existing));
-      }
-    }
+  const start = useCallback(
+    async (resumeElapsedMs = 0) => {
+      const raw = getBridge();
+      const myRun = ++runRef.current;
+      const begin = Date.now() - Math.max(0, resumeElapsedMs);
+      const alive = () => runRef.current === myRun;
+      const bridge = withPacing(raw, optsRef.current.speed, alive);
+      setStartedAt(begin);
+      setNow(Date.now());
+      setFiles([]);
+      await raw.system.keepAwake(true).catch(() => {});
 
-    while (alive()) {
-      const { session, ai, workspace, followIde, onTerminal } = optsRef.current;
-      if (isSessionOver(begin, session.durationMinutes, Date.now())) {
-        await stop("Time is up — session finished.");
-        return;
-      }
-      iter++;
-      setIteration(iter);
-      const sink = await makeSink();
+      const keep = optsRef.current.saveFiles;
+      const root = keep && optsRef.current.workspace ? optsRef.current.workspace : await raw.fs.scratchDir().catch(() => "");
+      statsRef.current = { files: 0, lines: 0, ai: false, practice: false, kept: keep && !!optsRef.current.workspace, begin, root };
+      const used = loadUsed();
+      const history: string[] = [];
+      const failStreak: Record<string, number> = {};
+      let lastOutput: string | undefined;
+      let lastExit: number | null | undefined;
+      let stuckFile: string | undefined;
+      let iter = 0;
 
-      if (session.mode === "project") {
-        const reached = await runProjectRound({
-          bridge,
-          root: workspace,
-          session,
-          ai,
-          alive,
-          sink,
-          followIde,
-          git,
-          ui: {
-            status: (s) => alive() && setStatus(s),
-            message: (m) => alive() && setMessage(m),
-            surface: (c) => alive() && setSurface(c),
-            file: (f) => alive() && setCurrentFile(f),
-            terminal: onTerminal,
-            fileWritten: (f) => setFiles((list) => [{ ...f, at: Date.now() + Math.random() }, ...list].slice(0, 200)),
-            plan: setPlan,
-          },
-        });
-        if (!alive()) return;
-        if (!reached) {
-          await sleep(15_000);
+      setMessage("Checking the AI engine…");
+      let engineOk = await aiReady(raw, optsRef.current.ai);
+      if (!alive()) return;
+      if (!engineOk) {
+        setPractice(true);
+        setMessage("No AI engine found — writing practice code on screen instead (not saved). It switches to the AI by itself once it's ready.");
+      }
+
+      const git = { ok: false };
+      if (engineOk && root) {
+        let out = "";
+        const code = await raw.terminal.run("git --version", root, 15, (t) => (out += t)).catch(() => null);
+        git.ok = code === 0 && /git version/i.test(out);
+      }
+      if (engineOk && root) {
+        const { liveMode, followIde } = optsRef.current;
+        if (liveMode === "addon") {
+          // Code is written inside VS Code: open the folder there and make sure the add-on is listening.
+          const editor = await connectEditor(raw, { root, preferred: followIde, onNote: setMessage });
+          if (!alive()) return;
+          setMessage(editor ? `Connected to ${editor} — code will be written there.` : "Coding here instead of VS Code.");
+        }
+        if (liveMode === "keyboard" && VSCODE_FAMILY.includes(followIde ?? "")) {
+          const existing = await raw.fs.read(root, ".vscode/settings.json");
+          await raw.fs.writeFile(root, ".vscode/settings.json", mergeSettings(existing));
+        }
+      }
+
+      while (alive()) {
+        const { session, ai, followIde, onTerminal } = optsRef.current;
+        if (isSessionOver(begin, session.durationMinutes, Date.now())) {
+          await stop("Time is up — session finished.");
+          return;
+        }
+        iter++;
+        setIteration(iter);
+
+        // No AI: keep writing practice code, and look for the AI again every few programs.
+        if (!engineOk && iter % 5 === 0) {
+          engineOk = await aiReady(raw, ai);
+          if (engineOk) setMessage("AI engine found — switching from practice code to real coding.");
+        }
+        if (!engineOk || !root) {
+          setPractice(true);
+          statsRef.current.practice = true;
+          await practiceRound(alive, used);
           continue;
         }
-        setStatus("resting");
-        await sleep(session.pauseSeconds * 1000);
-        continue;
-      }
+        setPractice(false);
+        statsRef.current.ai = true;
+        const sink = await makeSink(root);
 
-      setStatus("thinking");
-      setMessage(session.mode === "random" ? "Picking something fun to build…" : "Planning the next step…");
-      setSurface("");
-      setCurrentFile(null);
-
-      const { system, prompt } = buildPrompt(session, {
-        iteration: iter,
-        files: history,
-        lastOutput,
-        lastExitCode: lastExit,
-        stuckFile,
-        rand: Math.random,
-      });
-      stuckFile = undefined;
-
-      let text = "";
-      try {
-        text = await bridge.ai.generate(
-          { provider: ai.provider, model: ai.model, system, prompt, ollamaUrl: ai.ollamaUrl, nimKey: ai.nimKey },
-          (chunk) => {
-            if (!alive()) return;
-            text += chunk;
-            sink?.onText(text);
-            const name = /FILE:\s*`?([^\s`]+)/i.exec(text)?.[1];
-            const lang = /```([\w+#-]*)/.exec(text)?.[1];
-            if (name) setCurrentFile({ name, language: lang || "text" });
-            const code = streamingCode(text);
-            if (code) {
-              setStatus("writing");
-              setSurface(code);
-            }
-          },
-        );
-      } catch (e) {
-        if (!alive()) return;
-        setStatus("error");
-        setMessage(`AI engine not reachable: ${(e as Error).message}. Retrying in 15s…`);
-        await sleep(15_000);
-        continue;
-      }
-      if (!alive()) return;
-
-      const parsed = parseCodeResponse(text, iter);
-      if (!parsed) {
-        setMessage("The model replied without code — asking again.");
-        continue;
-      }
-      setSurface(parsed.code);
-      setCurrentFile({ name: parsed.filename, language: parsed.language });
-      await sink?.finish(parsed.filename, parsed.code);
-      let path = parsed.filename;
-      try {
-        path = await bridge.fs.writeFile(workspace, parsed.filename, parsed.code);
-      } catch (e) {
-        setMessage(`Could not save file: ${(e as Error).message}`);
-      }
-      if (!history.includes(parsed.filename)) history.push(parsed.filename);
-      if (followIde && !sink?.opensEditor) bridge.ide.open(followIde, workspace, path).catch(() => {});
-
-      const entry: WrittenFile = { filename: parsed.filename, path, language: parsed.language, at: Date.now(), exitCode: undefined };
-      setFiles((f) => [entry, ...f].slice(0, 200));
-
-      const cmd = session.autoRun ? runCommandFor(parsed.filename) : null;
-      if (cmd) {
-        setStatus("running");
-        setMessage(`Running ${parsed.filename}…`);
-        onTerminal(`\n$ ${cmd}\n`);
-        let out = "";
-        const code = await bridge.terminal.run(cmd, workspace, session.runTimeoutSeconds, (d) => {
-          out += d;
-          onTerminal(d);
-        });
-        if (!alive()) return;
-        lastOutput = out;
-        lastExit = code;
-        onTerminal(`[exit ${code ?? "timeout"}]\n`);
-        setFiles((f) => f.map((x) => (x === entry ? { ...x, exitCode: code } : x)));
-        failStreak[parsed.filename] = code === 0 ? 0 : (failStreak[parsed.filename] ?? 0) + 1;
-        if ((failStreak[parsed.filename] ?? 0) >= STUCK_LIMIT) {
-          stuckFile = parsed.filename;
-          failStreak[parsed.filename] = 0;
+        if (session.mode === "project") {
+          const reached = await runProjectRound({
+            bridge,
+            root,
+            session,
+            ai,
+            alive,
+            sink,
+            followIde,
+            git,
+            ui: {
+              status: (s) => alive() && setStatus(s),
+              message: (m) => alive() && setMessage(m),
+              surface: (c) => alive() && setSurface(c),
+              file: (f) => alive() && setCurrentFile(f),
+              terminal: onTerminal,
+              fileWritten: (f) => {
+                statsRef.current.files++;
+                setFiles((list) => [{ ...f, kept: statsRef.current.kept, at: Date.now() + Math.random() }, ...list].slice(0, 200));
+              },
+              plan: setPlan,
+            },
+          });
+          if (!alive()) return;
+          if (!reached) {
+            engineOk = await aiReady(raw, ai);
+            continue;
+          }
+          setStatus("resting");
+          await sleep(session.pauseSeconds * 1000);
+          continue;
         }
-      } else {
-        lastOutput = undefined;
-      }
 
-      setStatus("resting");
-      setMessage(`Saved ${parsed.filename}. Next file in ${session.pauseSeconds}s…`);
-      await sleep(session.pauseSeconds * 1000);
-    }
-  }, [stop, makeSink]);
+        setStatus("thinking");
+        setMessage(session.mode === "random" ? "Picking something fun to build…" : "Planning the next step…");
+        setSurface("");
+        setCurrentFile(null);
+
+        const { system, prompt } = buildPrompt(session, {
+          iteration: iter,
+          files: history,
+          lastOutput,
+          lastExitCode: lastExit,
+          stuckFile,
+          rand: Math.random,
+        });
+        stuckFile = undefined;
+
+        let text = "";
+        try {
+          text = await bridge.ai.generate(
+            { provider: ai.provider, model: ai.model, system, prompt, ollamaUrl: ai.ollamaUrl, nimKey: ai.nimKey },
+            (chunk) => {
+              if (!alive()) return;
+              text += chunk;
+              sink?.onText(text);
+              const name = /FILE:\s*`?([^\s`]+)/i.exec(text)?.[1];
+              const lang = /```([\w+#-]*)/.exec(text)?.[1];
+              if (name) setCurrentFile({ name, language: lang || "text" });
+              const code = streamingCode(text);
+              if (code) {
+                setStatus("writing");
+                setSurface(code);
+              }
+            },
+          );
+        } catch (e) {
+          if (!alive()) return;
+          setMessage(`AI engine stopped answering (${(e as Error).message}) — writing practice code meanwhile.`);
+          engineOk = false;
+          continue;
+        }
+        if (!alive()) return;
+
+        const parsed = parseCodeResponse(text, iter);
+        if (!parsed) {
+          setMessage("The model replied without code — asking again.");
+          continue;
+        }
+        setSurface(parsed.code);
+        setCurrentFile({ name: parsed.filename, language: parsed.language });
+        await sink?.finish(parsed.filename, parsed.code);
+        let path = parsed.filename;
+        try {
+          path = await bridge.fs.writeFile(root, parsed.filename, parsed.code);
+        } catch (e) {
+          setMessage(`Could not save file: ${(e as Error).message}`);
+        }
+        statsRef.current.files++;
+        statsRef.current.lines += parsed.code.split("\n").length;
+        if (!history.includes(parsed.filename)) history.push(parsed.filename);
+        if (followIde && !sink?.opensEditor && statsRef.current.kept) bridge.ide.open(followIde, root, path).catch(() => {});
+
+        const entry: WrittenFile = { filename: parsed.filename, path, language: parsed.language, at: Date.now(), exitCode: undefined, kept: statsRef.current.kept };
+        setFiles((f) => [entry, ...f].slice(0, 200));
+
+        const cmd = session.autoRun ? runCommandFor(parsed.filename) : null;
+        if (cmd) {
+          setStatus("running");
+          setMessage(`Running ${parsed.filename}…`);
+          onTerminal(`\n$ ${cmd}\n`);
+          let out = "";
+          const code = await bridge.terminal.run(cmd, root, session.runTimeoutSeconds, (d) => {
+            out += d;
+            onTerminal(d);
+          });
+          if (!alive()) return;
+          lastOutput = out;
+          lastExit = code;
+          onTerminal(`[exit ${code ?? "timeout"}]\n`);
+          setFiles((f) => f.map((x) => (x === entry ? { ...x, exitCode: code } : x)));
+          failStreak[parsed.filename] = code === 0 ? 0 : (failStreak[parsed.filename] ?? 0) + 1;
+          if ((failStreak[parsed.filename] ?? 0) >= STUCK_LIMIT) {
+            stuckFile = parsed.filename;
+            failStreak[parsed.filename] = 0;
+          }
+        } else {
+          lastOutput = undefined;
+        }
+        // "Don't keep files": tested, now thrown away.
+        if (!statsRef.current.kept) await bridge.fs.remove(root, parsed.filename).catch(() => {});
+
+        setStatus("resting");
+        setMessage(`${statsRef.current.kept ? "Saved" : "Tested and discarded"} ${parsed.filename}. Next file in ${session.pauseSeconds}s…`);
+        await sleep(session.pauseSeconds * 1000);
+      }
+    },
+    [stop, makeSink, practiceRound],
+  );
 
   useEffect(() => () => void (runRef.current++), []);
 
@@ -268,6 +413,7 @@ export function useCodingSession(opts: Options) {
     plan,
     reloadPlan,
     message,
+    practice,
     start,
     stop,
     running: startedAt !== null,
