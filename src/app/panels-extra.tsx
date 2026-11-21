@@ -206,10 +206,14 @@ export function SetupHelper({
   const [busy, setBusy] = useState<string | null>(null);
   const [pull, setPull] = useState<{ status: string; percent: number | null } | null>(null);
 
-  const check = useCallback(async () => {
+  const check = useCallback(async (): Promise<SetupReport | null> => {
     setChecking(true);
     try {
-      setReport(await bridge.setup.check(ai.ollamaUrl));
+      const r = await bridge.setup.check(ai.ollamaUrl);
+      setReport(r);
+      return r;
+    } catch {
+      return null;
     } finally {
       setChecking(false);
     }
@@ -231,8 +235,12 @@ export function SetupHelper({
     }
     setBusy(id);
     await runInTerminal(wingetCommand(tool), 1800);
+    const fresh = await check();
     setBusy(null);
-    await check();
+    // Finish the job: once the AI engine is up, fetch the chosen model straight away.
+    if (id === "ollama" && fresh?.ollama.running && ai.provider === "ollama" && !hasModel(fresh.models, ai.model)) {
+      await download();
+    }
   };
 
   const download = async () => {
@@ -250,7 +258,7 @@ export function SetupHelper({
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="flex items-center justify-between">
         <span className="label-caps">setup helper</span>
-        <Button variant="ghost" size="sm" onClick={check}>
+        <Button variant="ghost" size="sm" onClick={() => check()}>
           <RefreshCw className={checking ? "animate-spin" : ""} /> Re-check
         </Button>
       </div>
@@ -276,11 +284,24 @@ export function SetupHelper({
                     {t.label} {t.id === "git" && <span className="text-xs text-muted-foreground">(recommended)</span>}
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{detail}</div>
+                  {busy === t.id && (
+                    <div className="text-[11px] text-muted-foreground">
+                      Progress shows in the Terminal tab. If Windows asks for permission, click Yes.
+                      {t.id === "ollama" && " The AI model downloads right after."}
+                    </div>
+                  )}
                 </div>
                 {!ok && (
-                  <Button variant="panel" size="sm" disabled={busy !== null} onClick={() => install(t.id)}>
-                    {report.winget ? (busy === t.id ? "Installing…" : "Install") : (<><ExternalLink /> Get</>)}
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {report.winget && (
+                      <Button variant="ghost" size="sm" className="h-7 px-2" title={`Download from ${t.url}`} onClick={() => bridge.system.openUrl(t.url)}>
+                        <ExternalLink />
+                      </Button>
+                    )}
+                    <Button variant="panel" size="sm" disabled={busy !== null} onClick={() => install(t.id)}>
+                      {report.winget ? (busy === t.id ? "Installing…" : "Install") : (<><ExternalLink /> Get</>)}
+                    </Button>
+                  </div>
                 )}
               </div>
             );

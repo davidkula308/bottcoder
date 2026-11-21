@@ -453,9 +453,9 @@ export function SetupPanel({
           label="Ollama address"
           hint={
             <>
-              Install Ollama, then run <code className="text-primary">ollama pull qwen2.5-coder:1.5b</code>. This
-              small model runs on a normal processor with no graphics card and no internet. If you add an NVIDIA
-              card later, try <code className="text-primary">qwen2.5-coder:7b</code> for smarter code.
+              Leave this as it is. Use the setup helper above to install Ollama and download{" "}
+              <code className="text-primary">{ai.model}</code>; after that the AI runs on your processor with no
+              graphics card and no internet.
             </>
           }
         >

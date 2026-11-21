@@ -159,7 +159,12 @@ ipcMain.handle("ai:models", async (_e, req) => {
     return (json.data || []).map((m) => m.id).filter((id) => /code|coder|qwen|llama|deepseek/i.test(id));
   }
   const base = (req.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
-  const res = await fetch(`${base}/api/tags`);
+  let res;
+  try {
+    res = await fetch(`${base}/api/tags`);
+  } catch {
+    throw new Error("Ollama isn't running on this PC yet. Install it in the setup helper above, or open Ollama from the Start Menu.");
+  }
   if (!res.ok) throw new Error(`Ollama ${res.status}`);
   const json = await res.json();
   return (json.models || []).map((m) => m.name);
@@ -456,27 +461,34 @@ ipcMain.handle("setup:check", async (_e, ollamaUrl) => {
   let running = false;
   let version = null;
   let models = [];
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2500);
-    const v = await fetch(`${base}/api/version`, { signal: ctrl.signal });
-    clearTimeout(t);
-    if (v.ok) {
-      running = true;
-      version = (await v.json()).version || null;
-      const tags = await fetch(`${base}/api/tags`);
-      if (tags.ok) models = ((await tags.json()).models || []).map((m) => m.name);
-    }
-  } catch {}
+  const probe = async () => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2500);
+      const v = await fetch(`${base}/api/version`, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (v.ok) {
+        running = true;
+        version = (await v.json()).version || null;
+        const tags = await fetch(`${base}/api/tags`);
+        if (tags.ok) models = ((await tags.json()).models || []).map((m) => m.name);
+      }
+    } catch {}
+  };
+  await probe();
   const ollamaBin =
     firstLine(await run(`${isWin ? "where" : "which"} ollama`)) ||
     (isWin && fs.existsSync(expand("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe")) ? "found" : null);
   if (!running && ollamaBin && isWin) {
-    // Try to start the Ollama background service once.
+    // Start the Ollama background service, then give it a few seconds to come up.
     const exe = ollamaBin === "found" ? expand("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") : ollamaBin;
     try {
       spawn(`"${exe}"`, ["serve"], { shell: true, detached: true, stdio: "ignore", windowsHide: true }).unref();
     } catch {}
+    for (let i = 0; i < 8 && !running; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      await probe();
+    }
   }
   const pyCmd = isWin ? "python --version" : "python3 --version || python --version";
   let python = firstLine(await run(pyCmd));
