@@ -39,3 +39,5 @@ use the editor.
 - Live typing goes through `src/app/live.ts` sinks: the VS Code add-on (`vscode-extension/`, HTTP on 127.0.0.1:47615, packaged to `electron/nightshift-live.vsix`) or real keystrokes via `electron/typer.ps1` (Windows SendInput, types only while the target window title matches). The disk write after typing is always the source of truth.
 - Themes are class-based (`.theme-day` on <html>) overriding the same CSS tokens, including `--syn-*` code colours; never hardcode colours per theme in components.
 - Windows builds: `scripts/build-windows.sh` (packager + NSIS `installer/nightshift.nsi`, per-user install, no admin).
+- In-app updates: `scripts/build-windows.sh` also writes `public/updates` (manifest with sha256 + app files); the installed app downloads changed files from the published site's `/updates`, swaps them into `resources/app` and restarts. Why: no reinstall per release; only the Electron runtime itself needs a new installer. Bump VERSION each release and publish.
+- Activity apps rules live in `src/app/activity.ts`; `sys:blink` closes only process IDs it started. Why: never close windows the user already had open.

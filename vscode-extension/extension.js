@@ -7,6 +7,31 @@ let server = null;
 let status = null;
 let current = null; // vscode.Uri being typed
 let queue = Promise.resolve();
+let term = null; // "NightShift" terminal that mirrors the app's terminal
+let termWrite = null;
+
+function ensureTerminal() {
+  if (term && termWrite) return;
+  const emitter = new vscode.EventEmitter();
+  termWrite = (t) => emitter.fire(t);
+  term = vscode.window.createTerminal({
+    name: "NightShift",
+    pty: {
+      onDidWrite: emitter.event,
+      open: () => termWrite("\x1b[36mNightShift Coder — commands and output from the bot appear here.\x1b[0m\r\n"),
+      close: () => {
+        term = null;
+        termWrite = null;
+      },
+    },
+  });
+  term.show(true);
+}
+
+function mirrorTerminal(text) {
+  ensureTerminal();
+  termWrite(text.replace(/\r?\n/g, "\r\n"));
+}
 
 function enqueue(fn) {
   queue = queue.then(fn).catch((e) => console.error("[nightshift]", e));
@@ -106,6 +131,7 @@ function activate(context) {
     if (req.url === "/begin" && body.file) enqueue(() => begin(body.file));
     else if (req.url === "/append" && typeof body.text === "string") enqueue(() => append(body.text));
     else if (req.url === "/end" && body.file) enqueue(() => end(body.file, String(body.content ?? "")));
+    else if (req.url === "/term" && typeof body.text === "string") enqueue(async () => mirrorTerminal(body.text));
     else return reply(400, { ok: false });
     reply(200, { ok: true });
   });

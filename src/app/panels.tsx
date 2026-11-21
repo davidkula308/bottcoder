@@ -368,6 +368,7 @@ export function IdePanel({
         setCps={setTypingCps}
         ides={ides}
         followIde={followIde}
+        workspace={workspace}
       />
       {ides.map((ide) => (
         <div key={ide.id} className="flex items-center gap-3 rounded-md border bg-card p-3">

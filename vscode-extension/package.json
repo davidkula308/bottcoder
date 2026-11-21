@@ -1,16 +1,36 @@
 {
   "name": "nightshift-live",
   "displayName": "NightShift Live Typing",
-  "description": "Shows code from NightShift Coder being typed live in the editor.",
+  "description": "Shows code from NightShift Coder being typed live in the editor, with the bot's terminal mirrored.",
   "publisher": "nightshift",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://example.com/nightshift-coder" },
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Other"],
+  "repository": {
+    "type": "git",
+    "url": "https://example.com/nightshift-coder"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
-    "commands": [{ "command": "nightshift.live.status", "title": "NightShift: Live typing status" }]
+    "commands": [
+      {
+        "command": "nightshift.live.status",
+        "title": "NightShift: Live typing status"
+      }
+    ]
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false
   }
 }

@@ -45,6 +45,12 @@ contextBridge.exposeInMainWorld("nightshift", {
     createShortcuts: () => ipcRenderer.invoke("sys:createShortcuts"),
     keepAwake: (on) => ipcRenderer.invoke("sys:keepAwake", on),
     openUrl: (url) => ipcRenderer.invoke("sys:openUrl", url),
+    listLaunchable: () => ipcRenderer.invoke("sys:listLaunchable"),
+    blink: (path, seconds, minimized) => ipcRenderer.invoke("sys:blink", { path, seconds, minimized }),
+  },
+  update: {
+    check: () => ipcRenderer.invoke("update:check"),
+    apply: (onProgress) => stream("update:apply", "update:progress", {}, onProgress),
   },
   setup: {
     check: (ollamaUrl) => ipcRenderer.invoke("setup:check", ollamaUrl),
@@ -63,6 +69,7 @@ contextBridge.exposeInMainWorld("nightshift", {
       begin: (root, rel) => ipcRenderer.invoke("live:begin", { root, rel }),
       append: (text) => ipcRenderer.invoke("live:append", text),
       end: (root, rel, content) => ipcRenderer.invoke("live:end", { root, rel, content }),
+      term: (text) => ipcRenderer.invoke("live:term", text),
     },
   },
 });

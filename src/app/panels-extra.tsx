@@ -1,17 +1,39 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, CircleDashed, Download, ExternalLink, Keyboard, RefreshCw, RotateCcw, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDashed,
+  Download,
+  ExternalLink,
+  Keyboard,
+  RefreshCw,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getBridge, type IdeInfo } from "./bridge";
 import { Field, Segmented } from "./controls";
 import type { AiConfig, ProjectType, SessionConfig } from "./engine";
-import type { LiveMode } from "./live";
+import { connectEditor, type LiveMode } from "./live";
 import { PROJECT_TYPES, progress, type ProjectState } from "./project";
-import { TOOLS, hasModel, recommendModel, toolPresent, wingetCommand, type SetupReport } from "./setup";
+import {
+  TOOLS,
+  hasModel,
+  recommendModel,
+  toolPresent,
+  wingetCommand,
+  type SetupReport,
+} from "./setup";
 
 /* ---------------- Project mode ---------------- */
 
-export function ProjectTypePicker({ value, onChange }: { value: ProjectType; onChange: (t: ProjectType) => void }) {
+export function ProjectTypePicker({
+  value,
+  onChange,
+}: {
+  value: ProjectType;
+  onChange: (t: ProjectType) => void;
+}) {
   return (
     <div className="grid grid-cols-1 gap-1.5">
       {PROJECT_TYPES.map((t) => (
@@ -24,7 +46,9 @@ export function ProjectTypePicker({ value, onChange }: { value: ProjectType; onC
             value === t.id ? "border-primary bg-primary/10" : "bg-muted/40 hover:border-primary/50",
           )}
         >
-          <div className={cn("text-sm", value === t.id ? "text-primary" : "text-foreground")}>{t.label}</div>
+          <div className={cn("text-sm", value === t.id ? "text-primary" : "text-foreground")}>
+            {t.label}
+          </div>
           <div className="text-xs text-muted-foreground">{t.description}</div>
         </button>
       ))}
@@ -32,11 +56,20 @@ export function ProjectTypePicker({ value, onChange }: { value: ProjectType; onC
   );
 }
 
-export function PlanView({ plan, onReset, locked }: { plan: ProjectState | null; onReset: () => void; locked: boolean }) {
+export function PlanView({
+  plan,
+  onReset,
+  locked,
+}: {
+  plan: ProjectState | null;
+  onReset: () => void;
+  locked: boolean;
+}) {
   if (!plan)
     return (
       <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        No project in this folder yet. Press Start and the bot writes a plan first, then builds it task by task.
+        No project in this folder yet. Press Start and the bot writes a plan first, then builds it
+        task by task.
       </p>
     );
   const p = progress(plan);
@@ -52,7 +85,10 @@ export function PlanView({ plan, onReset, locked }: { plan: ProjectState | null;
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-        <div className="h-full bg-primary transition-all" style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }} />
+        <div
+          className="h-full bg-primary transition-all"
+          style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }}
+        />
       </div>
       <ul className="max-h-56 space-y-1 overflow-y-auto">
         {plan.tasks.map((t) => (
@@ -64,9 +100,15 @@ export function PlanView({ plan, onReset, locked }: { plan: ProjectState | null;
             ) : (
               <CircleDashed className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
             )}
-            <span className={cn(t.status === "done" ? "text-muted-foreground line-through" : "text-foreground")}>
+            <span
+              className={cn(
+                t.status === "done" ? "text-muted-foreground line-through" : "text-foreground",
+              )}
+            >
               {t.title}
-              {t.status === "todo" && t.attempts > 0 && <span className="ml-1 text-warn">(try {t.attempts + 1}/3)</span>}
+              {t.status === "todo" && t.attempts > 0 && (
+                <span className="ml-1 text-warn">(try {t.attempts + 1}/3)</span>
+              )}
             </span>
           </li>
         ))}
@@ -94,7 +136,10 @@ export function ProjectSection({
   return (
     <>
       <Field label="Project type">
-        <ProjectTypePicker value={session.projectType} onChange={(projectType) => setSession({ ...session, projectType })} />
+        <ProjectTypePicker
+          value={session.projectType}
+          onChange={(projectType) => setSession({ ...session, projectType })}
+        />
       </Field>
       <PlanView plan={plan} onReset={onReset} locked={locked} />
     </>
@@ -110,6 +155,7 @@ export function LiveTypingSection({
   setCps,
   ides,
   followIde,
+  workspace,
 }: {
   mode: LiveMode;
   setMode: (m: LiveMode) => void;
@@ -117,9 +163,11 @@ export function LiveTypingSection({
   setCps: (n: number) => void;
   ides: IdeInfo[];
   followIde: string | null;
+  workspace: string;
 }) {
   const bridge = getBridge();
   const [addon, setAddon] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [note, setNote] = useState("");
   const ping = useCallback(() => bridge.ide.live.ping().then(setAddon), [bridge]);
   useEffect(() => {
@@ -127,7 +175,9 @@ export function LiveTypingSection({
     const t = setInterval(ping, 5000);
     return () => clearInterval(t);
   }, [ping]);
-  const vsFamily = ides.filter((i) => ["vscode", "cursor", "windsurf"].includes(i.id) && i.available);
+  const vsFamily = ides.filter(
+    (i) => ["vscode", "cursor", "windsurf"].includes(i.id) && i.available,
+  );
   const target = ides.find((i) => i.id === followIde)?.name ?? "Notepad";
 
   return (
@@ -139,7 +189,7 @@ export function LiveTypingSection({
         value={mode}
         options={[
           { value: "off", label: "Off" },
-          { value: "addon", label: "VS Code add-on" },
+          { value: "addon", label: "Write in VS Code" },
           { value: "keyboard", label: "Real keyboard" },
         ]}
         onChange={setMode}
@@ -147,14 +197,46 @@ export function LiveTypingSection({
 
       {mode === "addon" && (
         <div className="space-y-2 text-xs text-muted-foreground">
-          <p>Code appears letter by letter inside VS Code, Cursor or Windsurf, even while you use other windows.</p>
+          <p>
+            When coding starts, NightShift opens your workspace in VS Code and writes the code there
+            letter by letter. Commands and their output show in a “NightShift” terminal inside VS
+            Code. NightShift still runs everything and reads the results, so keep it open (it can be
+            minimized).
+          </p>
           <p className={addon ? "text-primary" : "text-warn"}>
-            {addon ? `● Connected to ${addon}` : "○ Not connected — install the add-on, then reload the editor."}
+            {addon
+              ? `● Connected to ${addon}`
+              : "○ Not connected yet — press Connect, or just start coding."}
           </p>
           <div className="flex flex-wrap gap-2">
+            {vsFamily.length > 0 && (
+              <Button
+                variant="signal"
+                size="sm"
+                disabled={!workspace || connecting}
+                onClick={async () => {
+                  setConnecting(true);
+                  const app = await connectEditor(bridge, {
+                    root: workspace,
+                    preferred: followIde,
+                    onNote: setNote,
+                  });
+                  setConnecting(false);
+                  if (app) setNote(`Connected to ${app}.`);
+                  ping();
+                }}
+              >
+                {connecting ? "Connecting…" : "Connect VS Code"}
+              </Button>
+            )}
             {vsFamily.map((i) => (
-              <Button key={i.id} variant="panel" size="sm" onClick={async () => setNote(await bridge.ide.installAddon(i.id))}>
-                Install in {i.name}
+              <Button
+                key={i.id}
+                variant="ghost"
+                size="sm"
+                onClick={async () => setNote(await bridge.ide.installAddon(i.id))}
+              >
+                Reinstall add-on in {i.name}
               </Button>
             ))}
             {vsFamily.length === 0 && <span>No VS Code-style editor found.</span>}
@@ -165,12 +247,14 @@ export function LiveTypingSection({
       {mode === "keyboard" && (
         <div className="space-y-2 text-xs text-muted-foreground">
           <p>
-            Types with <span className="text-foreground">real keystrokes</span> into {target}, so Windows sees real
-            typing activity and the PC won't fall asleep. Pick the editor with “mirror” above.
+            Types with <span className="text-foreground">real keystrokes</span> into {target}, so
+            Windows sees real typing activity and the PC won't fall asleep. Pick the editor with
+            “mirror” above.
           </p>
           <p className="text-warn">
-            Leave the editor window in front. If you switch to another window, typing pauses for that file so it never
-            types into the wrong place. The finished file is always saved correctly.
+            Leave the editor window in front. If you switch to another window, typing pauses for
+            that file so it never types into the wrong place. The finished file is always saved
+            correctly.
           </p>
           <Field label={`Typing speed · ${cps} characters per second`}>
             <input
@@ -226,11 +310,16 @@ export function SetupHelper({
   const rec = report ? recommendModel(report.ramGB) : null;
   const modelReady = report ? hasModel(report.models, ai.model) : false;
 
-  const [ollamaProg, setOllamaProg] = useState<{ status: string; percent: number | null } | null>(null);
+  const [ollamaProg, setOllamaProg] = useState<{ status: string; percent: number | null } | null>(
+    null,
+  );
 
   /** Electron wraps errors as "Error invoking remote method 'x': Error: …"; keep only the readable part. */
   const plain = (e: unknown) =>
-    String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, "");
+    String((e as Error)?.message ?? e).replace(
+      /^Error invoking remote method '[^']+': (\w*Error: )?/,
+      "",
+    );
 
   const download = async (): Promise<boolean> => {
     setPull({ status: "starting", percent: 0 });
@@ -311,20 +400,34 @@ export function SetupHelper({
                 : (report[t.id] ?? "not installed");
             return (
               <div key={t.id} className="flex items-center gap-3">
-                {ok ? <CheckCircle2 className="size-4 shrink-0 text-primary" /> : <XCircle className="size-4 shrink-0 text-warn" />}
+                {ok ? (
+                  <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                ) : (
+                  <XCircle className="size-4 shrink-0 text-warn" />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="text-sm">
-                    {t.label} {t.id === "git" && <span className="text-xs text-muted-foreground">(recommended)</span>}
+                    {t.label}{" "}
+                    {t.id === "git" && (
+                      <span className="text-xs text-muted-foreground">(recommended)</span>
+                    )}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">{detail}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">
+                    {detail}
+                  </div>
                   {t.id === "ollama" && ollamaProg && (
                     <div className="mt-1 space-y-1">
-                      <div className={`text-[11px] ${ollamaProg.status.startsWith("failed") ? "text-warn" : "text-muted-foreground"}`}>
+                      <div
+                        className={`text-[11px] ${ollamaProg.status.startsWith("failed") ? "text-warn" : "text-muted-foreground"}`}
+                      >
                         {ollamaProg.status}
                       </div>
                       {ollamaProg.percent !== null && !ollamaProg.status.startsWith("failed") && (
                         <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                          <div className="h-full bg-primary transition-all" style={{ width: `${ollamaProg.percent}%` }} />
+                          <div
+                            className="h-full bg-primary transition-all"
+                            style={{ width: `${ollamaProg.percent}%` }}
+                          />
                         </div>
                       )}
                     </div>
@@ -338,12 +441,33 @@ export function SetupHelper({
                 {!ok && (
                   <div className="flex shrink-0 items-center gap-1">
                     {(report.winget || t.id === "ollama") && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2" title={`Download from ${t.url}`} onClick={() => bridge.system.openUrl(t.url)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        title={`Download from ${t.url}`}
+                        onClick={() => bridge.system.openUrl(t.url)}
+                      >
                         <ExternalLink />
                       </Button>
                     )}
-                    <Button variant="panel" size="sm" disabled={busy !== null} onClick={() => install(t.id)}>
-                      {t.id === "ollama" || report.winget ? (busy === t.id ? "Installing…" : "Install") : (<><ExternalLink /> Get</>)}
+                    <Button
+                      variant="panel"
+                      size="sm"
+                      disabled={busy !== null}
+                      onClick={() => install(t.id)}
+                    >
+                      {t.id === "ollama" || report.winget ? (
+                        busy === t.id ? (
+                          "Installing…"
+                        ) : (
+                          "Install"
+                        )
+                      ) : (
+                        <>
+                          <ExternalLink /> Get
+                        </>
+                      )}
                     </Button>
                   </div>
                 )}
@@ -359,11 +483,17 @@ export function SetupHelper({
             {rec && (
               <div className="mt-2 rounded border bg-card p-2 text-xs">
                 <div>
-                  Recommended model: <span className="font-mono text-primary">{rec.model}</span> ({rec.size})
+                  Recommended model: <span className="font-mono text-primary">{rec.model}</span> (
+                  {rec.size})
                 </div>
                 <div className="text-muted-foreground">{rec.why}</div>
                 {ai.model !== rec.model && (
-                  <Button variant="ghost" size="sm" className="mt-1 h-7 px-2" onClick={() => setAi({ ...ai, provider: "ollama", model: rec.model })}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 h-7 px-2"
+                    onClick={() => setAi({ ...ai, provider: "ollama", model: rec.model })}
+                  >
                     Use this model
                   </Button>
                 )}
@@ -373,7 +503,11 @@ export function SetupHelper({
 
           {ai.provider === "ollama" && (
             <div className="flex items-center gap-3">
-              {modelReady ? <CheckCircle2 className="size-4 shrink-0 text-primary" /> : <XCircle className="size-4 shrink-0 text-warn" />}
+              {modelReady ? (
+                <CheckCircle2 className="size-4 shrink-0 text-primary" />
+              ) : (
+                <XCircle className="size-4 shrink-0 text-warn" />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="text-sm">AI model {ai.model}</div>
                 <div className="font-mono text-[11px] text-muted-foreground">
@@ -387,12 +521,23 @@ export function SetupHelper({
                 </div>
                 {pull && pull.percent !== null && pull.status !== "done" && (
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${pull.percent}%` }} />
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{ width: `${pull.percent}%` }}
+                    />
                   </div>
                 )}
               </div>
               {!modelReady && (
-                <Button variant="panel" size="sm" disabled={busy !== null || (pull !== null && pull.status !== "done" && !pull.status.startsWith("failed"))} onClick={getModel}>
+                <Button
+                  variant="panel"
+                  size="sm"
+                  disabled={
+                    busy !== null ||
+                    (pull !== null && pull.status !== "done" && !pull.status.startsWith("failed"))
+                  }
+                  onClick={getModel}
+                >
                   <Download /> Download
                 </Button>
               )}

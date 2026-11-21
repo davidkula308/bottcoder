@@ -16,3 +16,7 @@
 - [x] Theme switch: light theme, white code background, blue/red code colors (syntax colors)
 - [x] Real keyboard typing: types code with real keystrokes into the editor in front (counts as PC activity), screen kept on during sessions
 - [x] Rebuild Windows download + installer into Files
+- [x] Self-updating desktop app (download new version from the published site, restart, no installer)
+- [x] During-session "activity apps": every 30/40/custom minutes open a chosen light app, then close it
+- [x] VS Code mode that works end to end: auto-open workspace, auto-install add-on, live typing + terminal mirrored in VS Code
+- [x] Rebuild installer (last manual install) + update feed

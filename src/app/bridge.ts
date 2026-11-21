@@ -3,6 +3,7 @@
 import type { Provider } from "./engine";
 import type { FileEntry } from "./project";
 import type { SetupReport } from "./setup";
+import type { UpdateInfo } from "./update";
 
 export interface GenerateRequest {
   provider: Provider;
@@ -29,6 +30,13 @@ export interface IdeInfo {
   id: string;
   name: string;
   available: boolean;
+}
+
+export interface LaunchableApp {
+  name: string;
+  path: string;
+  /** light = small built-in Windows app, open = running now, installed = from the Start Menu */
+  source: "light" | "open" | "installed";
 }
 
 export interface DesktopBridge {
@@ -63,6 +71,15 @@ export interface DesktopBridge {
     createShortcuts(): Promise<string>;
     keepAwake(on: boolean): Promise<void>;
     openUrl(url: string): Promise<void>;
+    /** Apps that can be opened: small built-in ones, ones open now, and Start Menu apps. */
+    listLaunchable(): Promise<LaunchableApp[]>;
+    /** Opens an app, waits `seconds`, then closes only the window it opened. */
+    blink(path: string, seconds: number, minimized: boolean): Promise<string>;
+  };
+  update: {
+    check(): Promise<UpdateInfo>;
+    /** Downloads the changed files, swaps them in and restarts the app. */
+    apply(onProgress: (p: PullProgress) => void): Promise<boolean>;
   };
   setup: {
     check(ollamaUrl: string): Promise<SetupReport>;
@@ -84,6 +101,8 @@ export interface DesktopBridge {
       begin(root: string, rel: string): Promise<void>;
       append(text: string): Promise<void>;
       end(root: string, rel: string, content: string): Promise<void>;
+      /** Mirrors terminal output into the "NightShift" terminal inside VS Code. */
+      term(text: string): Promise<void>;
     };
   };
 }
@@ -319,6 +338,28 @@ export const demoBridge: DesktopBridge = {
     async openUrl(url) {
       window.open(url, "_blank", "noopener");
     },
+    async listLaunchable() {
+      return [
+        { name: "Notepad", path: "C:\\Windows\\System32\\notepad.exe", source: "light" as const },
+        { name: "Paint", path: "C:\\Windows\\System32\\mspaint.exe", source: "light" as const },
+        { name: "Character Map", path: "C:\\Windows\\System32\\charmap.exe", source: "light" as const },
+        { name: "chrome", path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", source: "open" as const },
+        { name: "Spotify", path: "C:\\Users\\you\\AppData\\Roaming\\Spotify\\Spotify.exe", source: "installed" as const },
+        { name: "VLC media player", path: "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe", source: "installed" as const },
+      ];
+    },
+    async blink(path, seconds) {
+      await sleep(Math.min(3000, seconds * 100));
+      return `(preview) would open and close ${path.split("\\").pop()}`;
+    },
+  },
+  update: {
+    async check() {
+      return { current: "1.2.0", latest: "1.2.0", available: false, notes: "" };
+    },
+    async apply() {
+      return false;
+    },
   },
   keyboard: {
     async type(text, _m, cps) {
@@ -380,6 +421,7 @@ export const demoBridge: DesktopBridge = {
       async begin() {},
       async append() {},
       async end() {},
+      async term() {},
     },
   },
 };

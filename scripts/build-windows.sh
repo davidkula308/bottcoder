@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.1.2}"
+VERSION="${VERSION:-1.2.0}"
+NOTES="${NOTES:-}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"
@@ -19,6 +20,8 @@ cp -r dist-electron/renderer "$STAGE/dist-electron/"
 cat > "$STAGE/package.json" <<JSON
 { "name": "nightshift-coder", "productName": "NightShift Coder", "version": "$VERSION", "description": "Offline AI coding bot", "main": "electron/main.cjs", "author": "NightShift Coder", "license": "MIT" }
 JSON
+# The same staged files become the in-app update feed (served from the published site at /updates).
+node "$ROOT/scripts/make-update-feed.mjs" "$STAGE" "$VERSION" "$NOTES"
 
 # --no-asar: typer.ps1 and the add-on file must stay real files on disk.
 "$TOOLS/node_modules/.bin/electron-packager" "$STAGE" "NightShift Coder" --platform=win32 --arch=x64 \

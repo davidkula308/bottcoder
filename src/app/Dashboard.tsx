@@ -11,6 +11,9 @@ import { archiveProject } from "./project-runner";
 import { progress } from "./project";
 import { missingForSession } from "./setup";
 import type { LiveMode } from "./live";
+import { ActivitySection, UpdateSection } from "./panels-activity";
+import { DEFAULT_ACTIVITY, isActivityDue, pickActivityApp, type ActivityConfig } from "./activity";
+import type { UpdateInfo } from "./update";
 import {
   DEFAULT_AI,
   DEFAULT_SESSION,
@@ -50,14 +53,28 @@ export function Dashboard() {
     liveMode: "off" as LiveMode,
     typingCps: 30,
     theme: "night" as "night" | "day",
+    autoUpdate: true,
   });
+  const [activity, setActivity] = useStored<ActivityConfig>("activity", DEFAULT_ACTIVITY);
+  const [activityDone, setActivityDone] = useState(0);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<string | null>(null);
   const [focus, setFocus] = useState(false);
   const [setupMissing, setSetupMissing] = useState<string[]>([]);
   const [schedules, setSchedules] = useStored<Schedule[]>("schedules", []);
   const [tab, setTab] = useState<TabId>("session");
   const [term, setTerm] = useState("");
 
-  const appendTerm = useCallback((t: string) => setTerm((s) => (s + t).slice(-40_000)), []);
+  // Everything shown in the app's terminal is also mirrored into VS Code's "NightShift" terminal when writing there.
+  const mirrorRef = useRef(false);
+  mirrorRef.current = prefs.liveMode === "addon";
+  const appendTerm = useCallback(
+    (t: string) => {
+      setTerm((s) => (s + t).slice(-40_000));
+      if (mirrorRef.current) bridge.ide.live.term(t).catch(() => {});
+    },
+    [bridge],
+  );
 
   const bot = useCodingSession({
     session,
@@ -102,7 +119,16 @@ export function Dashboard() {
     if (!bridge.isDesktop) return;
     bridge.setup
       .check(ai.ollamaUrl)
-      .then((r) => setSetupMissing(missingForSession(r, { ...ai, mode: session.mode, projectType: session.projectType, languages: session.languages })))
+      .then((r) =>
+        setSetupMissing(
+          missingForSession(r, {
+            ...ai,
+            mode: session.mode,
+            projectType: session.projectType,
+            languages: session.languages,
+          }),
+        ),
+      )
       .catch(() => {});
   }, [bridge, ai, session.mode, session.projectType, session.languages, tab]);
 
@@ -153,12 +179,81 @@ export function Dashboard() {
             .then((r) => appendTerm(`\n[schedule] ${s.name}: ${r}\n`));
       }
       const key = dayKey(now);
-      setSchedules((list) => list.map((s) => (due.some((d) => d.id === s.id) ? { ...s, lastRunKey: key } : s)));
+      setSchedules((list) =>
+        list.map((s) => (due.some((d) => d.id === s.id) ? { ...s, lastRunKey: key } : s)),
+      );
     };
     const t = setInterval(tick, 20_000);
     tick();
     return () => clearInterval(t);
   }, [appendTerm, setSchedules]);
+
+  // During coding: open one of the chosen apps every N minutes of the session, then close it.
+  const actRef = useRef({ activity, done: 0, last: undefined as string | undefined });
+  actRef.current.activity = activity;
+  useEffect(() => {
+    actRef.current.done = 0;
+    setActivityDone(0);
+    if (!bot.startedAt) return;
+    const startedAt = bot.startedAt;
+    const tick = () => {
+      const r = actRef.current;
+      if (!isActivityDue(r.activity, Date.now() - startedAt, r.done)) return;
+      r.done++;
+      setActivityDone(r.done);
+      const app = pickActivityApp(r.activity.apps, Math.random, r.last);
+      if (!app) return;
+      r.last = app.path;
+      appendTerm(`\n[activity] opening ${app.name} for ${r.activity.openSeconds}s\n`);
+      getBridge()
+        .system.blink(app.path, r.activity.openSeconds, r.activity.minimized)
+        .then((msg) => appendTerm(`[activity] ${msg}\n`))
+        .catch(() => {});
+    };
+    const t = setInterval(tick, 5000);
+    return () => clearInterval(t);
+  }, [bot.startedAt, appendTerm]);
+
+  // Updates: check at start and every 6 hours; apply by itself when no session is running.
+  const checkUpdate = useCallback(async () => {
+    if (!bridge.isDesktop) return setUpdate(await bridge.update.check());
+    setUpdate(
+      await bridge.update
+        .check()
+        .catch((e: Error) => ({
+          current: "?",
+          latest: null,
+          available: false,
+          notes: "",
+          error: e.message,
+        })),
+    );
+  }, [bridge]);
+  const applyUpdate = useCallback(async () => {
+    setUpdateProgress("starting update…");
+    try {
+      await bridge.update.apply((p) => setUpdateProgress(p.status));
+    } catch (e) {
+      setUpdateProgress(
+        `update failed: ${String((e as Error).message).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, "")}`,
+      );
+    }
+  }, [bridge]);
+  useEffect(() => {
+    checkUpdate();
+    const t = setInterval(checkUpdate, 6 * 3_600_000);
+    return () => clearInterval(t);
+  }, [checkUpdate]);
+  useEffect(() => {
+    if (
+      bridge.isDesktop &&
+      prefs.autoUpdate &&
+      update?.available &&
+      !bot.running &&
+      !updateProgress
+    )
+      applyUpdate();
+  }, [bridge.isDesktop, prefs.autoUpdate, update, bot.running, updateProgress, applyUpdate]);
 
   const left = bot.startedAt ? remainingMs(bot.startedAt, session.durationMinutes, bot.now) : null;
   const elapsed = bot.startedAt ? bot.now - bot.startedAt : 0;
@@ -176,7 +271,11 @@ export function Dashboard() {
     <span
       className={cn(
         "size-2 rounded-full",
-        bot.status === "error" ? "bg-destructive" : active ? "animate-pulse-signal bg-signal" : "bg-muted-foreground",
+        bot.status === "error"
+          ? "bg-destructive"
+          : active
+            ? "animate-pulse-signal bg-signal"
+            : "bg-muted-foreground",
       )}
     />
   );
@@ -189,7 +288,10 @@ export function Dashboard() {
           {statusDot}
           <span className="font-mono text-xs tabular-nums text-primary">{clock}</span>
           {bot.running ? (
-            <button onClick={() => bot.stop()} className="font-mono text-[11px] uppercase text-destructive">
+            <button
+              onClick={() => bot.stop()}
+              className="font-mono text-[11px] uppercase text-destructive"
+            >
               stop
             </button>
           ) : (
@@ -197,7 +299,11 @@ export function Dashboard() {
               start
             </button>
           )}
-          <button aria-label="Leave focus view" onClick={() => toggleFocus(false)} className="text-muted-foreground hover:text-foreground">
+          <button
+            aria-label="Leave focus view"
+            onClick={() => toggleFocus(false)}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <Minimize2 className="size-4" />
           </button>
         </div>
@@ -214,7 +320,9 @@ export function Dashboard() {
             <Cpu className="size-4" />
           </div>
           <div>
-            <h1 className="font-display text-base font-bold leading-none tracking-tight">NightShift Coder</h1>
+            <h1 className="font-display text-base font-bold leading-none tracking-tight">
+              NightShift Coder
+            </h1>
             <p className="label-caps mt-1">
               {ai.provider === "ollama" ? "ollama" : "nvidia nim"} · {ai.model}
             </p>
@@ -223,7 +331,9 @@ export function Dashboard() {
 
         <div className="flex items-center gap-2 rounded-full border bg-muted px-3 py-1">
           {statusDot}
-          <span className="font-mono text-[11px] uppercase tracking-wider">{STATUS_LABEL[bot.status]}</span>
+          <span className="font-mono text-[11px] uppercase tracking-wider">
+            {STATUS_LABEL[bot.status]}
+          </span>
         </div>
 
         <div className="ml-auto flex items-center gap-4">
@@ -237,13 +347,23 @@ export function Dashboard() {
             >
               {prefs.theme === "day" ? <Moon /> : <Sun />}
             </Button>
-            <Button variant="ghost" size="icon" aria-label="Show only the coding screen" title="Coding screen only (Esc to leave)" onClick={() => toggleFocus(true)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Show only the coding screen"
+              title="Coding screen only (Esc to leave)"
+              onClick={() => toggleFocus(true)}
+            >
               <Maximize2 />
             </Button>
           </div>
           <div className="text-right">
-            <div className="label-caps">{bot.running ? (left === null ? "elapsed" : "time left") : "session length"}</div>
-            <div className="font-mono text-2xl font-semibold tabular-nums text-primary">{clock}</div>
+            <div className="label-caps">
+              {bot.running ? (left === null ? "elapsed" : "time left") : "session length"}
+            </div>
+            <div className="font-mono text-2xl font-semibold tabular-nums text-primary">
+              {clock}
+            </div>
           </div>
           {bot.running ? (
             <Button variant="halt" size="xl" onClick={() => bot.stop()}>
@@ -265,9 +385,19 @@ export function Dashboard() {
           Setup needed before coding: {setupMissing.join(" · ")} — open Setup
         </button>
       )}
+      {bridge.isDesktop && update?.available && (
+        <button
+          onClick={() => (bot.running ? setTab("setup") : applyUpdate())}
+          className="border-b bg-accent px-4 py-1.5 text-center font-mono text-[11px] text-primary hover:underline"
+        >
+          {updateProgress ??
+            `Version ${update.latest} is ready — ${bot.running ? "it installs when this session ends (or open Setup)" : "click to update and restart"}`}
+        </button>
+      )}
       {!bridge.isDesktop && (
         <div className="border-b bg-accent px-4 py-1.5 text-center font-mono text-[11px] text-accent-foreground">
-          Preview mode — the AI, terminal and app launching are simulated here. Install the Windows app for the real thing.
+          Preview mode — the AI, terminal and app launching are simulated here. Install the Windows
+          app for the real thing.
         </div>
       )}
 
@@ -304,7 +434,9 @@ export function Dashboard() {
                 onClick={() => setTab(t.id)}
                 className={cn(
                   "-mb-px shrink-0 border-b-2 px-3 py-2.5 font-mono text-[11px] uppercase tracking-wider transition-colors",
-                  tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+                  tab === t.id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t.label}
@@ -327,7 +459,17 @@ export function Dashboard() {
                 }}
               />
             )}
-            {tab === "schedule" && <SchedulePanel schedules={schedules} setSchedules={setSchedules} />}
+            {tab === "schedule" && (
+              <div className="space-y-5">
+                <ActivitySection
+                  activity={activity}
+                  setActivity={setActivity}
+                  elapsedMs={bot.startedAt ? bot.now - bot.startedAt : null}
+                  done={activityDone}
+                />
+                <SchedulePanel schedules={schedules} setSchedules={setSchedules} />
+              </div>
+            )}
             {tab === "apps" && <AppsPanel />}
             {tab === "ide" && (
               <IdePanel
@@ -341,28 +483,48 @@ export function Dashboard() {
               />
             )}
             {tab === "setup" && (
-              <SetupPanel
-                ai={ai}
-                setAi={setAi}
-                autoStart={prefs.autoStart}
-                setAutoStart={(autoStart) => setPrefs({ ...prefs, autoStart })}
-                runInTerminal={runInTerminal}
-              />
+              <div className="space-y-5">
+                <UpdateSection
+                  info={update}
+                  onCheck={checkUpdate}
+                  onApply={applyUpdate}
+                  progress={updateProgress}
+                  autoUpdate={prefs.autoUpdate}
+                  setAutoUpdate={(autoUpdate) => setPrefs({ ...prefs, autoUpdate })}
+                />
+                <SetupPanel
+                  ai={ai}
+                  setAi={setAi}
+                  autoStart={prefs.autoStart}
+                  setAutoStart={(autoStart) => setPrefs({ ...prefs, autoStart })}
+                  runInTerminal={runInTerminal}
+                />
+              </div>
             )}
           </div>
           <div className="max-h-40 overflow-y-auto border-t px-4 py-3">
             <div className="label-caps mb-2">recent files</div>
-            {bot.files.length === 0 && <p className="text-xs text-muted-foreground">Nothing written yet.</p>}
+            {bot.files.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nothing written yet.</p>
+            )}
             {bot.files.slice(0, 20).map((f) => (
               <div key={f.at} className="flex items-center gap-2 py-0.5 font-mono text-[11px]">
                 <FileCode2 className="size-3 text-primary" />
                 <span className="flex-1 truncate">{f.filename}</span>
                 <span
                   className={cn(
-                    f.exitCode === 0 ? "text-primary" : f.exitCode === undefined ? "text-muted-foreground" : "text-warn",
+                    f.exitCode === 0
+                      ? "text-primary"
+                      : f.exitCode === undefined
+                        ? "text-muted-foreground"
+                        : "text-warn",
                   )}
                 >
-                  {f.exitCode === undefined ? "saved" : f.exitCode === 0 ? "ok" : `exit ${f.exitCode ?? "timeout"}`}
+                  {f.exitCode === undefined
+                    ? "saved"
+                    : f.exitCode === 0
+                      ? "ok"
+                      : `exit ${f.exitCode ?? "timeout"}`}
                 </span>
               </div>
             ))}

@@ -634,6 +634,199 @@ ipcMain.handle("setup:installOllama", async (event, { id, ollamaUrl }) => {
   return true;
 });
 
+/* ---------------- Activity apps (open an app, then close it) ---------------- */
+
+function runPs(script, timeoutMs = 30000) {
+  return new Promise((resolve) => {
+    const enc = Buffer.from(script, "utf16le").toString("base64");
+    exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${enc}`, { windowsHide: true, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (err, out) =>
+      resolve(err ? "" : out),
+    );
+  });
+}
+
+function parseJsonList(out) {
+  try {
+    const v = JSON.parse(out.trim() || "[]");
+    return Array.isArray(v) ? v : v ? [v] : [];
+  } catch {
+    return [];
+  }
+}
+
+// Small built-in apps that open fast and are safe to close.
+const LIGHT_APPS = [
+  { name: "Notepad", path: "%WINDIR%\\System32\\notepad.exe" },
+  { name: "Paint", path: "%WINDIR%\\System32\\mspaint.exe" },
+  { name: "Character Map", path: "%WINDIR%\\System32\\charmap.exe" },
+  { name: "WordPad", path: "%ProgramFiles%\\Windows NT\\Accessories\\wordpad.exe" },
+  { name: "Snipping Tool", path: "%WINDIR%\\System32\\SnippingTool.exe" },
+];
+
+ipcMain.handle("sys:listLaunchable", async () => {
+  if (!isWin) return [];
+  const light = LIGHT_APPS.map((a) => ({ ...a, path: expand(a.path), source: "light" })).filter((a) => fs.existsSync(a.path));
+  const open = parseJsonList(
+    await runPs(
+      "Get-Process | Where-Object { $_.MainWindowTitle -and $_.Path } | Select-Object @{n='name';e={$_.ProcessName}},@{n='path';e={$_.Path}} | ConvertTo-Json -Compress",
+    ),
+  ).map((a) => ({ name: a.name, path: a.path, source: "open" }));
+  const installed = parseJsonList(
+    await runPs(
+      "$sh = New-Object -ComObject WScript.Shell; $dirs = @([Environment]::GetFolderPath('CommonPrograms'), [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')); " +
+        "Get-ChildItem -Path $dirs -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object { try { $t = $sh.CreateShortcut($_.FullName).TargetPath; if ($t -and $t.ToLower().EndsWith('.exe') -and (Test-Path $t)) { [pscustomobject]@{ name = $_.BaseName; path = $t } } } catch {} } | ConvertTo-Json -Compress",
+      60000,
+    ),
+  )
+    .filter((a) => !/uninstall|setup|install|update|repair|help|readme/i.test(`${a.name} ${a.path}`))
+    .map((a) => ({ name: a.name, path: a.path, source: "installed" }));
+  const seen = new Set();
+  const list = [];
+  for (const a of [...light, ...open, ...installed]) {
+    const k = String(a.path).toLowerCase();
+    if (seen.has(k) || k.includes("nightshift")) continue;
+    seen.add(k);
+    list.push(a);
+  }
+  return list;
+});
+
+async function pidsOf(image) {
+  const out = await run(`tasklist /FI "IMAGENAME eq ${image}" /FO CSV /NH`);
+  return new Set(
+    out
+      .split(/\r?\n/)
+      .map((l) => l.split('","')[1])
+      .filter(Boolean)
+      .map((p) => Number(p.replace(/"/g, ""))),
+  );
+}
+
+let blinking = false;
+ipcMain.handle("sys:blink", async (_e, { path: target, seconds, minimized }) => {
+  if (!isWin) return "only on Windows";
+  if (blinking) return "another app is still open";
+  if (!target || !fs.existsSync(target) || !/\.exe$/i.test(target)) return "app not found";
+  blinking = true;
+  try {
+    const image = path.basename(target);
+    const before = await pidsOf(image);
+    const style = minimized ? "Minimized" : "Normal";
+    const started = (await runPs(`(Start-Process -FilePath '${target.replace(/'/g, "''")}' -WindowStyle ${style} -PassThru).Id`)).trim();
+    await new Promise((r) => setTimeout(r, 2500));
+    const after = await pidsOf(image);
+    const mine = [...after].filter((p) => !before.has(p));
+    if (started && !before.has(Number(started)) && after.has(Number(started)) && !mine.includes(Number(started))) mine.push(Number(started));
+    await new Promise((r) => setTimeout(r, Math.max(3, Math.min(600, seconds || 20)) * 1000));
+    if (!mine.length) return `opened ${image} (it handed over to another window, so it was left open)`;
+    // Ask nicely first (like clicking X), then make sure it is gone. Never touches copies that were already open.
+    await run(`taskkill ${mine.map((p) => `/PID ${p}`).join(" ")}`);
+    await new Promise((r) => setTimeout(r, 4000));
+    const still = [...(await pidsOf(image))].filter((p) => mine.includes(p));
+    if (still.length) await run(`taskkill /F ${still.map((p) => `/PID ${p}`).join(" ")}`);
+    return `opened and closed ${image}`;
+  } finally {
+    blinking = false;
+  }
+});
+
+/* ---------------- In-app updates ---------------- */
+
+const UPDATE_BASE = "https://bottcoder.lovable.app/updates";
+const APP_ROOT = path.join(__dirname, "..");
+
+// Same rule as src/app/update.ts isSafeUpdatePath.
+function safeUpdatePath(p) {
+  if (!p || p.includes("..") || p.includes("\\") || p.startsWith("/") || /^[a-z]:/i.test(p)) return false;
+  return p === "package.json" || p.startsWith("electron/") || p.startsWith("dist-electron/renderer/");
+}
+
+function newer(a, b) {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+function sha256(buf) {
+  return require("crypto").createHash("sha256").update(buf).digest("hex");
+}
+
+async function fetchManifest() {
+  const res = await net.fetch(`${UPDATE_BASE}/manifest.json?t=${Date.now()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`update server said ${res.status}`);
+  const m = await res.json();
+  if (!m || typeof m.version !== "string" || !Array.isArray(m.files)) throw new Error("update info is damaged");
+  return m;
+}
+
+ipcMain.handle("update:check", async () => {
+  const current = app.getVersion();
+  try {
+    const m = await fetchManifest();
+    return { current, latest: m.version, available: newer(m.version, current), notes: m.notes || "" };
+  } catch (e) {
+    return { current, latest: null, available: false, notes: "", error: e.message };
+  }
+});
+
+ipcMain.handle("update:apply", async (event, { id }) => {
+  const send = (status, percent) => event.sender.send("update:progress", { id, text: { status, percent } });
+  if (!app.isPackaged) throw new Error("updates only work in the installed app");
+  const m = await fetchManifest();
+  if (!newer(m.version, app.getVersion())) return false;
+  const stage = path.join(APP_ROOT, ".update");
+  fs.rmSync(stage, { recursive: true, force: true });
+  const todo = [];
+  for (const f of m.files) {
+    if (!safeUpdatePath(f.path) || typeof f.sha256 !== "string") throw new Error(`update contains a file it may not change: ${f.path}`);
+    const local = path.join(APP_ROOT, f.path);
+    if (fs.existsSync(local) && sha256(fs.readFileSync(local)) === f.sha256) continue;
+    todo.push(f);
+  }
+  // 1. Download only the changed files and check every byte.
+  let i = 0;
+  for (const f of todo) {
+    send(`downloading ${f.path.split("/").pop()} (${++i} of ${todo.length})`, Math.round((i / Math.max(1, todo.length)) * 90));
+    const res = await net.fetch(`${UPDATE_BASE}/files/${f.path}?v=${m.version}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`couldn't download ${f.path} (${res.status})`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (sha256(buf) !== f.sha256) throw new Error(`${f.path} didn't download correctly — try again`);
+    const dest = path.join(stage, f.path);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, buf);
+  }
+  // 2. Swap them in, then drop old screen files the new version doesn't use.
+  send("installing update…", 95);
+  for (const f of todo) {
+    const dest = path.join(APP_ROOT, f.path);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(path.join(stage, f.path), dest);
+  }
+  const keep = new Set(m.files.map((f) => f.path));
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r);
+      else if (!keep.has(r)) fs.rmSync(path.join(dir, e.name), { force: true });
+    }
+  };
+  try {
+    walk(path.join(APP_ROOT, "dist-electron", "renderer"), "dist-electron/renderer");
+  } catch {}
+  fs.rmSync(stage, { recursive: true, force: true });
+  send(`updated to ${m.version} — restarting`, 100);
+  setTimeout(() => {
+    quitting = true;
+    app.relaunch();
+    app.exit(0);
+  }, 1200);
+  return true;
+});
+
 /* ---------------- Live typing (VS Code add-on) ---------------- */
 
 const LIVE_URL = "http://127.0.0.1:47615";
@@ -666,6 +859,7 @@ ipcMain.handle("live:ping", async () => {
 ipcMain.handle("live:begin", (_e, { root, rel }) => livePost("/begin", { file: insideRoot(root, rel) }));
 ipcMain.handle("live:append", (_e, text) => livePost("/append", { text }));
 ipcMain.handle("live:end", (_e, { root, rel, content }) => livePost("/end", { file: insideRoot(root, rel), content }));
+ipcMain.handle("live:term", (_e, text) => livePost("/term", { text: String(text).slice(0, 20000) }));
 
 ipcMain.handle("ide:installAddon", async (_e, id) => {
   const ide = IDES.find((i) => i.id === id);

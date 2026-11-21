@@ -143,3 +143,48 @@ export function createKeyboardSink(
     },
   };
 }
+
+export const VSCODE_FAMILY = ["vscode", "cursor", "windsurf"];
+
+/**
+ * Gets VS Code (or Cursor/Windsurf) ready to receive code: opens the workspace there and,
+ * if the add-on doesn't answer, installs it and opens the folder again. Returns the editor name or null.
+ */
+export async function connectEditor(
+  bridge: DesktopBridge,
+  opts: { root: string; preferred: string | null; onNote: (msg: string) => void; waitMs?: number },
+): Promise<string | null> {
+  const already = await bridge.ide.live.ping();
+  if (already) return already;
+  const ides = await bridge.ide.detect();
+  const ide =
+    ides.find((i) => i.id === opts.preferred && i.available && VSCODE_FAMILY.includes(i.id)) ??
+    ides.find((i) => VSCODE_FAMILY.includes(i.id) && i.available);
+  if (!ide) {
+    opts.onNote("VS Code isn't installed on this PC — code is shown here instead.");
+    return null;
+  }
+  const wait = async (ms: number) => {
+    for (let t = 0; t < ms; t += 1000) {
+      const app = await bridge.ide.live.ping();
+      if (app) return app;
+      await sleep(1000);
+    }
+    return null;
+  };
+  const waitMs = opts.waitMs ?? 20_000;
+  opts.onNote(`Opening your workspace in ${ide.name}…`);
+  await bridge.ide.open(ide.id, opts.root);
+  let app = await wait(waitMs);
+  if (app) return app;
+  opts.onNote(`Installing the NightShift add-on in ${ide.name}…`);
+  await bridge.ide.installAddon(ide.id);
+  await bridge.ide.open(ide.id, opts.root);
+  app = await wait(waitMs);
+  if (!app) {
+    opts.onNote(
+      `${ide.name} opened but the add-on didn't answer. In ${ide.name} press Ctrl+Shift+P → "Reload Window", and click "Trust" if it asks. Code is still saved meanwhile.`,
+    );
+  }
+  return app;
+}

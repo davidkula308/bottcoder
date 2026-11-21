@@ -10,7 +10,7 @@ import {
   type AiConfig,
   type SessionConfig,
 } from "./engine";
-import { createAddonSink, createKeyboardSink, mergeSettings, type LiveMode, type LiveSink } from "./live";
+import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, mergeSettings, type LiveMode, type LiveSink } from "./live";
 import { loadProject, runProjectRound } from "./project-runner";
 import type { ProjectState } from "./project";
 
@@ -35,7 +35,6 @@ interface Options {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const VSCODE_FAMILY = ["vscode", "cursor", "windsurf"];
 
 export function useCodingSession(opts: Options) {
   const optsRef = useRef(opts);
@@ -112,6 +111,12 @@ export function useCodingSession(opts: Options) {
     }
     {
       const { liveMode, followIde, workspace } = optsRef.current;
+      if (liveMode === "addon") {
+        // Code is written inside VS Code: open the workspace there and make sure the add-on is listening.
+        const editor = await connectEditor(bridge, { root: workspace, preferred: followIde, onNote: setMessage });
+        if (!alive()) return;
+        setMessage(editor ? `Connected to ${editor} — code will be written there.` : "Coding here; files are still saved to the workspace.");
+      }
       if (liveMode === "keyboard" && VSCODE_FAMILY.includes(followIde ?? "")) {
         const existing = await bridge.fs.read(workspace, ".vscode/settings.json");
         await bridge.fs.writeFile(workspace, ".vscode/settings.json", mergeSettings(existing));
