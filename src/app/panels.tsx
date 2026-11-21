@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { getBridge, type IdeInfo, type RunningApp } from "./bridge";
 import { Chip, Field, Segmented, SwitchRow, inputClass } from "./controls";
 import { LANGUAGES, type AiConfig, type Schedule, type SessionConfig } from "./engine";
+import type { LiveMode } from "./live";
+import type { ProjectState } from "./project";
+import { LiveTypingSection, ProjectSection, SetupHelper } from "./panels-extra";
 
 const DURATIONS = [
   { value: "30", label: "30m" },
@@ -20,12 +23,16 @@ export function SessionPanel({
   workspace,
   setWorkspace,
   locked,
+  plan,
+  onResetProject,
 }: {
   session: SessionConfig;
   setSession: (s: SessionConfig) => void;
   workspace: string;
   setWorkspace: (p: string) => void;
   locked: boolean;
+  plan: ProjectState | null;
+  onResetProject: () => void;
 }) {
   const dur = session.durationMinutes === null ? "unlimited" : String(session.durationMinutes);
   const preset = DURATIONS.some((d) => d.value === dur) ? dur : "custom";
@@ -71,15 +78,30 @@ export function SessionPanel({
         <Segmented
           value={session.mode}
           options={[
+            { value: "project", label: "Real project" },
             { value: "strategic", label: "Strategic" },
             { value: "random", label: "Random" },
           ]}
           onChange={(mode) => setSession({ ...session, mode })}
         />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {session.mode === "project"
+            ? "Plans a real project, builds it across many files with tests, saves every working step with Git and continues where it left off next time."
+            : session.mode === "strategic"
+              ? "One file at a time toward your goal, fixing errors from each run."
+              : "Fun stand-alone programs on random topics."}
+        </p>
       </Field>
 
-      {session.mode === "strategic" && (
-        <Field label="Project goal" hint="The bot builds toward this, reading each run's output to fix errors before moving on.">
+      {session.mode !== "random" && (
+        <Field
+          label="Project goal"
+          hint={
+            session.mode === "project"
+              ? "Describe what to build. Used when a new project starts in this folder."
+              : "The bot builds toward this, reading each run's output to fix errors before moving on."
+          }
+        >
           <textarea
             value={session.goal}
             onChange={(e) => setSession({ ...session, goal: e.target.value })}
@@ -89,6 +111,11 @@ export function SessionPanel({
         </Field>
       )}
 
+      {session.mode === "project" && (
+        <ProjectSection session={session} setSession={setSession} plan={plan} onReset={onResetProject} locked={locked} />
+      )}
+
+      {session.mode !== "project" && (
       <Field label="Languages">
         <div className="flex flex-wrap gap-1.5">
           {LANGUAGES.map((l) => {
@@ -110,9 +137,10 @@ export function SessionPanel({
           })}
         </div>
       </Field>
+      )}
 
       <SwitchRow
-        label="Run each file automatically"
+        label={session.mode === "project" ? "Run tests automatically" : "Run each file automatically"}
         hint="Runs the new file in the terminal and feeds errors back to the bot."
         checked={session.autoRun}
         onChange={(autoRun) => setSession({ ...session, autoRun })}
@@ -309,10 +337,18 @@ export function IdePanel({
   workspace,
   followIde,
   setFollowIde,
+  liveMode,
+  setLiveMode,
+  typingCps,
+  setTypingCps,
 }: {
   workspace: string;
   followIde: string | null;
   setFollowIde: (id: string | null) => void;
+  liveMode: LiveMode;
+  setLiveMode: (m: LiveMode) => void;
+  typingCps: number;
+  setTypingCps: (n: number) => void;
 }) {
   const [ides, setIdes] = useState<IdeInfo[]>([]);
   const [note, setNote] = useState("");
@@ -325,6 +361,14 @@ export function IdePanel({
       <p className="text-sm text-muted-foreground">
         Link a coding environment. With mirroring on, every new file opens there the moment it is written.
       </p>
+      <LiveTypingSection
+        mode={liveMode}
+        setMode={setLiveMode}
+        cps={typingCps}
+        setCps={setTypingCps}
+        ides={ides}
+        followIde={followIde}
+      />
       {ides.map((ide) => (
         <div key={ide.id} className="flex items-center gap-3 rounded-md border bg-card p-3">
           <span className={`size-2 rounded-full ${ide.available ? "bg-signal" : "bg-muted-foreground/40"}`} />
@@ -359,11 +403,13 @@ export function SetupPanel({
   setAi,
   autoStart,
   setAutoStart,
+  runInTerminal,
 }: {
   ai: AiConfig;
   setAi: (a: AiConfig) => void;
   autoStart: boolean;
   setAutoStart: (v: boolean) => void;
+  runInTerminal: (cmd: string, timeoutSec: number) => Promise<number | null>;
 }) {
   const bridge = getBridge();
   const [models, setModels] = useState<string[]>([]);
@@ -388,6 +434,7 @@ export function SetupPanel({
 
   return (
     <div className="space-y-5">
+      <SetupHelper ai={ai} setAi={setAi} runInTerminal={runInTerminal} />
       <Field label="AI engine">
         <Segmented
           value={ai.provider}
@@ -449,7 +496,7 @@ export function SetupPanel({
         <div className="label-caps">Startup</div>
         <SwitchRow
           label="Start with Windows"
-          hint="Opens quietly in the system tray when you turn on your PC."
+          hint="Opens quietly in the system tray when you turn on your PC. The screen stays on while a session runs."
           checked={boot}
           onChange={async (v) => setBoot(await bridge.system.setStartup(v))}
         />

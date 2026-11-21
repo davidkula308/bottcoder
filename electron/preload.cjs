@@ -49,6 +49,10 @@ contextBridge.exposeInMainWorld("nightshift", {
   setup: {
     check: (ollamaUrl) => ipcRenderer.invoke("setup:check", ollamaUrl),
   },
+  keyboard: {
+    type: (text, mustContain, cps) => ipcRenderer.invoke("kb:type", { text, mustContain, cps }),
+    save: (mustContain) => ipcRenderer.invoke("kb:save", { mustContain }),
+  },
   ide: {
     detect: () => ipcRenderer.invoke("ide:detect"),
     open: (id, folder, file) => ipcRenderer.invoke("ide:open", { id, folder, file }),

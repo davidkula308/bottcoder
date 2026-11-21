@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Cpu, FileCode2, Play, Power } from "lucide-react";
+import { Cpu, FileCode2, Maximize2, Minimize2, Moon, Play, Power, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getBridge } from "./bridge";
@@ -7,6 +7,10 @@ import { CodeSurface, TerminalPanel } from "./surfaces";
 import { AppsPanel, IdePanel, SchedulePanel, SessionPanel, SetupPanel } from "./panels";
 import { useStored } from "./use-stored";
 import { useCodingSession, type BotStatus } from "./use-coding-session";
+import { archiveProject } from "./project-runner";
+import { progress } from "./project";
+import { missingForSession } from "./setup";
+import type { LiveMode } from "./live";
 import {
   DEFAULT_AI,
   DEFAULT_SESSION,
@@ -43,7 +47,12 @@ export function Dashboard() {
     workspace: bridge.isDesktop ? "" : "C:\\Users\\you\\NightShift\\workspace",
     followIde: null as string | null,
     autoStart: false,
+    liveMode: "off" as LiveMode,
+    typingCps: 30,
+    theme: "night" as "night" | "day",
   });
+  const [focus, setFocus] = useState(false);
+  const [setupMissing, setSetupMissing] = useState<string[]>([]);
   const [schedules, setSchedules] = useStored<Schedule[]>("schedules", []);
   const [tab, setTab] = useState<TabId>("session");
   const [term, setTerm] = useState("");
@@ -55,8 +64,57 @@ export function Dashboard() {
     ai,
     workspace: prefs.workspace,
     followIde: prefs.followIde,
+    liveMode: prefs.liveMode,
+    typingCps: prefs.typingCps,
     onTerminal: appendTerm,
   });
+
+  // Theme on <html> so every layer (including popovers) follows it.
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-day", prefs.theme === "day");
+  }, [prefs.theme]);
+
+  // Focus view: only the coding screen. Esc leaves it.
+  const toggleFocus = useCallback((on: boolean) => {
+    setFocus(on);
+    if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFocus(false);
+    const onFs = () => !document.fullscreenElement && setFocus(false);
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("fullscreenchange", onFs);
+    };
+  }, []);
+
+  // Load the saved project plan for this folder.
+  const { reloadPlan } = bot;
+  useEffect(() => {
+    reloadPlan();
+  }, [prefs.workspace, session.mode, reloadPlan]);
+
+  // What still blocks a session (desktop only).
+  useEffect(() => {
+    if (!bridge.isDesktop) return;
+    bridge.setup
+      .check(ai.ollamaUrl)
+      .then((r) => setSetupMissing(missingForSession(r, { ...ai, mode: session.mode, projectType: session.projectType, languages: session.languages })))
+      .catch(() => {});
+  }, [bridge, ai, session.mode, session.projectType, session.languages, tab]);
+
+  const runInTerminal = useCallback(
+    async (cmd: string, timeoutSec: number) => {
+      appendTerm(`\n$ ${cmd}\n`);
+      const code = await bridge.terminal.run(cmd, prefs.workspace, timeoutSec, appendTerm);
+      appendTerm(`[exit ${code ?? "timeout"}]\n`);
+      return code;
+    },
+    [appendTerm, bridge, prefs.workspace],
+  );
 
   const startBot = useCallback(() => {
     if (!prefs.workspace) {
@@ -113,6 +171,39 @@ export function Dashboard() {
       : formatClock(left);
 
   const active = bot.status !== "idle";
+  const planInfo = bot.plan ? progress(bot.plan) : null;
+  const statusDot = (
+    <span
+      className={cn(
+        "size-2 rounded-full",
+        bot.status === "error" ? "bg-destructive" : active ? "animate-pulse-signal bg-signal" : "bg-muted-foreground",
+      )}
+    />
+  );
+
+  if (focus) {
+    return (
+      <div className="relative flex h-screen flex-col bg-surface">
+        <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} big />
+        <div className="absolute bottom-4 right-4 flex items-center gap-3 rounded-full border bg-card/90 px-3 py-1.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
+          {statusDot}
+          <span className="font-mono text-xs tabular-nums text-primary">{clock}</span>
+          {bot.running ? (
+            <button onClick={() => bot.stop()} className="font-mono text-[11px] uppercase text-destructive">
+              stop
+            </button>
+          ) : (
+            <button onClick={startBot} className="font-mono text-[11px] uppercase text-primary">
+              start
+            </button>
+          )}
+          <button aria-label="Leave focus view" onClick={() => toggleFocus(false)} className="text-muted-foreground hover:text-foreground">
+            <Minimize2 className="size-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid-dots flex min-h-screen flex-col bg-background lg:h-screen">
@@ -131,16 +222,25 @@ export function Dashboard() {
         </div>
 
         <div className="flex items-center gap-2 rounded-full border bg-muted px-3 py-1">
-          <span
-            className={cn(
-              "size-2 rounded-full",
-              bot.status === "error" ? "bg-destructive" : active ? "animate-pulse-signal bg-signal" : "bg-muted-foreground",
-            )}
-          />
+          {statusDot}
           <span className="font-mono text-[11px] uppercase tracking-wider">{STATUS_LABEL[bot.status]}</span>
         </div>
 
         <div className="ml-auto flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={prefs.theme === "day" ? "Switch to dark theme" : "Switch to light theme"}
+              title={prefs.theme === "day" ? "Dark theme" : "Light theme"}
+              onClick={() => setPrefs({ ...prefs, theme: prefs.theme === "day" ? "night" : "day" })}
+            >
+              {prefs.theme === "day" ? <Moon /> : <Sun />}
+            </Button>
+            <Button variant="ghost" size="icon" aria-label="Show only the coding screen" title="Coding screen only (Esc to leave)" onClick={() => toggleFocus(true)}>
+              <Maximize2 />
+            </Button>
+          </div>
           <div className="text-right">
             <div className="label-caps">{bot.running ? (left === null ? "elapsed" : "time left") : "session length"}</div>
             <div className="font-mono text-2xl font-semibold tabular-nums text-primary">{clock}</div>
@@ -157,6 +257,14 @@ export function Dashboard() {
         </div>
       </header>
 
+      {bridge.isDesktop && setupMissing.length > 0 && (
+        <button
+          onClick={() => setTab("setup")}
+          className="border-b bg-accent px-4 py-1.5 text-center font-mono text-[11px] text-warn hover:underline"
+        >
+          Setup needed before coding: {setupMissing.join(" · ")} — open Setup
+        </button>
+      )}
       {!bridge.isDesktop && (
         <div className="border-b bg-accent px-4 py-1.5 text-center font-mono text-[11px] text-accent-foreground">
           Preview mode — the AI, terminal and app launching are simulated here. Install the Windows app for the real thing.
@@ -170,11 +278,7 @@ export function Dashboard() {
             output={term}
             cwd={prefs.workspace}
             onKill={() => bridge.terminal.kill()}
-            onRun={async (cmd) => {
-              appendTerm(`\n$ ${cmd}\n`);
-              const code = await bridge.terminal.run(cmd, prefs.workspace, 120, appendTerm);
-              appendTerm(`[exit ${code ?? "timeout"}]\n`);
-            }}
+            onRun={(cmd) => void runInTerminal(cmd, 120)}
           />
         </main>
 
@@ -182,9 +286,15 @@ export function Dashboard() {
           <div className="border-b px-4 py-3">
             <p className="font-mono text-xs text-foreground">{bot.message}</p>
             <div className="mt-2 flex gap-4 font-mono text-[11px] text-muted-foreground">
-              <span>file #{bot.iteration}</span>
+              <span>round #{bot.iteration}</span>
               <span>{bot.files.length} written</span>
-              <span>{session.mode}</span>
+              {planInfo && session.mode === "project" ? (
+                <span className="text-primary">
+                  plan {planInfo.done}/{planInfo.total}
+                </span>
+              ) : (
+                <span>{session.mode}</span>
+              )}
             </div>
           </div>
           <nav className="flex overflow-x-auto border-b">
@@ -209,6 +319,12 @@ export function Dashboard() {
                 workspace={prefs.workspace}
                 setWorkspace={(workspace) => setPrefs({ ...prefs, workspace })}
                 locked={bot.running}
+                plan={bot.plan}
+                onResetProject={async () => {
+                  if (!prefs.workspace) return;
+                  await archiveProject(bridge, prefs.workspace);
+                  await bot.reloadPlan();
+                }}
               />
             )}
             {tab === "schedule" && <SchedulePanel schedules={schedules} setSchedules={setSchedules} />}
@@ -218,10 +334,20 @@ export function Dashboard() {
                 workspace={prefs.workspace}
                 followIde={prefs.followIde}
                 setFollowIde={(followIde) => setPrefs({ ...prefs, followIde })}
+                liveMode={prefs.liveMode}
+                setLiveMode={(liveMode) => setPrefs({ ...prefs, liveMode })}
+                typingCps={prefs.typingCps}
+                setTypingCps={(typingCps) => setPrefs({ ...prefs, typingCps })}
               />
             )}
             {tab === "setup" && (
-              <SetupPanel ai={ai} setAi={setAi} autoStart={prefs.autoStart} setAutoStart={(autoStart) => setPrefs({ ...prefs, autoStart })} />
+              <SetupPanel
+                ai={ai}
+                setAi={setAi}
+                autoStart={prefs.autoStart}
+                setAutoStart={(autoStart) => setPrefs({ ...prefs, autoStart })}
+                runInTerminal={runInTerminal}
+              />
             )}
           </div>
           <div className="max-h-40 overflow-y-auto border-t px-4 py-3">

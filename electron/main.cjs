@@ -300,6 +300,7 @@ const IDES = [
   { id: "zed", name: "Zed", cmd: "zed", winPaths: [] },
   { id: "sublime", name: "Sublime Text", cmd: "subl", winPaths: ["%ProgramFiles%\\Sublime Text\\subl.exe"] },
   { id: "notepadpp", name: "Notepad++", cmd: "notepad++", winPaths: ["%ProgramFiles%\\Notepad++\\notepad++.exe"] },
+  { id: "notepad", name: "Notepad", cmd: "notepad", winPaths: ["%WINDIR%\\System32\\notepad.exe"] },
 ];
 const resolvedIde = {};
 
@@ -422,7 +423,7 @@ ipcMain.handle("fs:remove", async (_e, { root, rel }) => {
 
 let awakeId = null;
 ipcMain.handle("sys:keepAwake", (_e, on) => {
-  if (on && awakeId === null) awakeId = powerSaveBlocker.start("prevent-app-suspension");
+  if (on && awakeId === null) awakeId = powerSaveBlocker.start("prevent-display-sleep");
   if (!on && awakeId !== null) {
     powerSaveBlocker.stop(awakeId);
     awakeId = null;
@@ -541,4 +542,56 @@ ipcMain.handle("ide:installAddon", async (_e, id) => {
     ),
   );
   return out;
+});
+
+/* ---------------- Real keyboard typing (Windows) ---------------- */
+
+let typer = null;
+let typerWaiting = [];
+let typerBuf = "";
+
+function startTyper() {
+  if (typer || !isWin) return typer;
+  typer = spawn("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(__dirname, "typer.ps1")], {
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  typer.stdout.on("data", (d) => {
+    typerBuf += d.toString();
+    let i;
+    while ((i = typerBuf.indexOf("\n")) >= 0) {
+      const line = typerBuf.slice(0, i).trim();
+      typerBuf = typerBuf.slice(i + 1);
+      const next = typerWaiting.shift();
+      if (next) next(line === "OK" ? "ok" : line === "BLOCKED" ? "blocked" : "blocked");
+    }
+  });
+  typer.on("exit", () => {
+    typer = null;
+    typerWaiting.splice(0).forEach((r) => r("blocked"));
+  });
+  return typer;
+}
+
+function typerSend(line) {
+  if (!isWin) return Promise.resolve("unsupported");
+  const p = startTyper();
+  if (!p) return Promise.resolve("unsupported");
+  return new Promise((resolve) => {
+    typerWaiting.push(resolve);
+    p.stdin.write(line + "\n");
+  });
+}
+
+const b64 = (s) => Buffer.from(String(s || ""), "utf8").toString("base64");
+
+ipcMain.handle("kb:type", (_e, { text, mustContain, cps }) => {
+  const delay = Math.max(5, Math.round(1000 / Math.max(5, Math.min(120, cps || 30))));
+  return typerSend(`T|${b64(text)}|${b64(mustContain)}|${delay}`);
+});
+ipcMain.handle("kb:save", (_e, { mustContain }) => typerSend(`S|${b64(mustContain)}`));
+app.on("will-quit", () => {
+  try {
+    typer?.kill();
+  } catch {}
 });

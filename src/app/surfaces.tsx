@@ -1,15 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { TerminalSquare, CornerDownLeft, Square } from "lucide-react";
 import type { BotStatus } from "./use-coding-session";
+import { tokenize, type TokenKind } from "./highlight";
+
+const TOKEN_CLASS: Record<TokenKind, string> = {
+  kw: "text-syn-kw font-semibold",
+  str: "text-syn-str",
+  com: "text-syn-com italic",
+  num: "text-syn-num",
+  fn: "text-syn-fn",
+  plain: "text-syn-plain",
+};
 
 export function CodeSurface({
   code,
   file,
   status,
+  big = false,
 }: {
   code: string;
   file: { name: string; language: string } | null;
   status: BotStatus;
+  big?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -20,15 +32,15 @@ export function CodeSurface({
   const typing = status === "writing" || status === "thinking";
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-surface">
-      <header className="flex items-center gap-3 border-b bg-card px-3">
+    <section className={`flex min-h-0 flex-col overflow-hidden bg-surface ${big ? "flex-1" : "rounded-lg border"}`}>
+      <header className={`flex items-center gap-3 border-b bg-card ${big ? "px-6" : "px-3"}`}>
         <div className="-mb-px flex items-center gap-2 border-b-2 border-primary py-2 font-mono text-xs text-foreground">
           <span className="size-2 rounded-full bg-signal" />
           {file?.name ?? "waiting-for-next-file"}
         </div>
         <span className="label-caps ml-auto">{file?.language ?? "—"}</span>
       </header>
-      <div ref={ref} className="scanlines min-h-[280px] flex-1 overflow-auto py-3 font-mono text-[13px] leading-6">
+      <div ref={ref} className={`scanlines min-h-[280px] flex-1 overflow-auto py-3 font-mono ${big ? "text-[15px] leading-7" : "text-[13px] leading-6"}`}>
         {lines.length === 0 ? (
           <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 text-muted-foreground">
             <span className="font-mono text-sm">
@@ -43,8 +55,14 @@ export function CodeSurface({
               {lines.map((line, i) => (
                 <tr key={i}>
                   <td className="w-12 select-none pr-4 text-right align-top text-gutter">{i + 1}</td>
-                  <td className="whitespace-pre pr-6 text-foreground">
-                    {line || " "}
+                  <td className="whitespace-pre pr-6 text-syn-plain">
+                    {line
+                      ? tokenize(line, file?.language ?? "").map((t, j) => (
+                          <span key={j} className={TOKEN_CLASS[t.k]}>
+                            {t.v}
+                          </span>
+                        ))
+                      : " "}
                     {typing && i === lines.length - 1 && (
                       <span className="ml-px inline-block h-4 w-2 translate-y-0.5 animate-caret bg-primary" />
                     )}

@@ -61,6 +61,12 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-syn-kw: var(--syn-kw);
+  --color-syn-str: var(--syn-str);
+  --color-syn-com: var(--syn-com);
+  --color-syn-num: var(--syn-num);
+  --color-syn-fn: var(--syn-fn);
+  --color-syn-plain: var(--syn-plain);
   --shadow-glow: var(--glow);
   --animate-caret: caret 1s steps(1) infinite;
   --animate-pulse-signal: pulse-signal 1.6s ease-in-out infinite;
@@ -94,6 +100,12 @@
   --signal: oklch(0.8 0.2 132);
   --warn: oklch(0.82 0.15 75);
   --glow: 0 0 0 1px oklch(0.8 0.2 132 / 0.5), 0 0 24px -4px oklch(0.8 0.2 132 / 0.55);
+  --syn-plain: oklch(0.92 0.015 140);
+  --syn-kw: oklch(0.8 0.2 132);
+  --syn-str: oklch(0.82 0.15 75);
+  --syn-com: oklch(0.55 0.02 150);
+  --syn-num: oklch(0.78 0.12 200);
+  --syn-fn: oklch(0.88 0.12 150);
   --chart-1: oklch(0.8 0.2 132);
   --chart-2: oklch(0.82 0.15 75);
   --chart-3: oklch(0.7 0.12 200);
@@ -107,6 +119,49 @@
   --sidebar-accent-foreground: oklch(0.93 0.015 140);
   --sidebar-border: oklch(0.29 0.015 150);
   --sidebar-ring: oklch(0.8 0.2 132);
+}
+
+/* Day theme: light interface, white code page, blue and red code. */
+.theme-day {
+  --background: oklch(0.975 0.004 250);
+  --foreground: oklch(0.22 0.03 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.03 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.03 260);
+  --primary: oklch(0.5 0.2 262);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.95 0.008 250);
+  --secondary-foreground: oklch(0.25 0.03 260);
+  --muted: oklch(0.955 0.006 250);
+  --muted-foreground: oklch(0.5 0.03 260);
+  --accent: oklch(0.93 0.03 262);
+  --accent-foreground: oklch(0.3 0.12 262);
+  --destructive: oklch(0.56 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.9 0.01 250);
+  --input: oklch(0.88 0.012 250);
+  --ring: oklch(0.5 0.2 262);
+  --terminal: oklch(0.985 0.003 250);
+  --terminal-foreground: oklch(0.32 0.12 262);
+  --surface: oklch(1 0 0);
+  --gutter: oklch(0.7 0.02 250);
+  --signal: oklch(0.55 0.2 262);
+  --warn: oklch(0.58 0.2 30);
+  --glow: 0 0 0 1px oklch(0.5 0.2 262 / 0.35), 0 6px 18px -6px oklch(0.5 0.2 262 / 0.45);
+  --syn-plain: oklch(0.25 0.04 262);
+  --syn-kw: oklch(0.48 0.22 262);
+  --syn-str: oklch(0.55 0.21 27);
+  --syn-com: oklch(0.62 0.02 250);
+  --syn-num: oklch(0.52 0.2 20);
+  --syn-fn: oklch(0.42 0.18 262);
+  color-scheme: light;
+}
+.theme-day .scanlines {
+  background-image: none;
+}
+.theme-day .grid-dots {
+  background-image: radial-gradient(oklch(0.5 0.2 262 / 0.07) 1px, transparent 1px);
 }
 
 @keyframes caret {

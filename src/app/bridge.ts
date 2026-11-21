@@ -67,6 +67,12 @@ export interface DesktopBridge {
   setup: {
     check(ollamaUrl: string): Promise<SetupReport>;
   };
+  keyboard: {
+    /** Types text with real keystrokes, only while a window whose title contains `mustContain` is in front. */
+    type(text: string, mustContain: string, cps: number): Promise<"ok" | "blocked" | "unsupported">;
+    /** Presses Ctrl+S in that window. */
+    save(mustContain: string): Promise<"ok" | "blocked" | "unsupported">;
+  };
   ide: {
     detect(): Promise<IdeInfo[]>;
     open(id: string, folder: string, file?: string): Promise<string>;
@@ -312,6 +318,15 @@ export const demoBridge: DesktopBridge = {
       window.open(url, "_blank", "noopener");
     },
   },
+  keyboard: {
+    async type(text, _m, cps) {
+      await sleep(Math.min(3000, (text.length / Math.max(5, cps)) * 1000));
+      return "ok";
+    },
+    async save() {
+      return "ok";
+    },
+  },
   setup: {
     async check() {
       await sleep(400);
@@ -340,6 +355,7 @@ export const demoBridge: DesktopBridge = {
         { id: "zed", name: "Zed", available: false },
         { id: "sublime", name: "Sublime Text", available: false },
         { id: "notepadpp", name: "Notepad++", available: true },
+        { id: "notepad", name: "Notepad", available: true },
       ];
     },
     async open(id) {

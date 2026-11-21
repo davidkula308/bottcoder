@@ -5,9 +5,14 @@
 - [x] Running apps list, IDE linking (VS Code etc.)
 - [x] Start with Windows + Start Menu shortcut (pin to Start)
 - [x] Windows desktop package (zip) in Files
-- [ ] Setup helper: check Ollama/Python/Node/Git/RAM, one-click installs (winget), one-click model download, recommended model
-- [ ] Keep PC awake during sessions
-- [ ] Real project mode: plan file, multi-file, reads own code, partial edits, tests, 3-strike stuck guard, Git commits/rollback, resumes across sessions, project types
-- [ ] Stuck guard for strategic mode
-- [ ] Live typing inside VS Code (add-on + one-click install)
-- [ ] Proper Windows installer (icon, Start Menu + Desktop shortcuts, uninstaller)
+- [x] Setup helper: check Ollama/Python/Node/Git/RAM, one-click installs (winget), one-click model download, recommended model
+- [x] Keep PC awake during sessions
+- [x] Real project mode: plan file, multi-file, reads own code, partial edits, tests, 3-strike stuck guard, Git commits/rollback, resumes across sessions, project types
+- [x] Stuck guard for strategic mode
+- [x] Live typing inside VS Code (add-on + one-click install)
+- [x] Proper Windows installer (icon, Start Menu + Desktop shortcuts, uninstaller)
+- [x] Wire new features into the screen (Project style + plan view, setup checklist, live typing switch)
+- [x] Focus view: hide everything except the coding screen
+- [x] Theme switch: light theme, white code background, blue/red code colors (syntax colors)
+- [x] Real keyboard typing: types code with real keystrokes into the editor in front (counts as PC activity), screen kept on during sessions
+- [x] Rebuild Windows download + installer into Files

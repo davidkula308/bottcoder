@@ -35,3 +35,7 @@ use the editor.
 - Pure rules (session timing, schedules, prompt building, code parsing) stay in `src/app/engine.ts` with tests in `engine.test.ts`.
 - Desktop UI is built with `vite.electron.config.ts` (`base: "./"` for file://) and packaged with @electron/packager from a clean staging folder outside the project.
 - AI runs from the Electron main process (no CORS, keys never reach the page); default engine is a CPU-friendly local Ollama model, NVIDIA NIM is optional.
+- "Real project" mode keeps its plan and progress in `<workspace>/.nightshift/state.json` (git-ignored) plus a visible `PLAN.md`; rules live in `src/app/project.ts`, the round loop in `src/app/project-runner.ts`. Why: sessions resume across restarts and rollbacks never touch the bot's memory.
+- Live typing goes through `src/app/live.ts` sinks: the VS Code add-on (`vscode-extension/`, HTTP on 127.0.0.1:47615, packaged to `electron/nightshift-live.vsix`) or real keystrokes via `electron/typer.ps1` (Windows SendInput, types only while the target window title matches). The disk write after typing is always the source of truth.
+- Themes are class-based (`.theme-day` on <html>) overriding the same CSS tokens, including `--syn-*` code colours; never hardcode colours per theme in components.
+- Windows builds: `scripts/build-windows.sh` (packager + NSIS `installer/nightshift.nsi`, per-user install, no admin).
