@@ -1,12 +1,14 @@
 // Pure, platform-free logic for the coding bot. Shared by the web preview and the desktop app.
 
-export type Mode = "random" | "strategic";
+export type Mode = "project" | "strategic" | "random";
+export type ProjectType = "python-cli" | "python-game" | "data" | "node-cli" | "web";
 export type Provider = "ollama" | "nim";
 
 export interface SessionConfig {
   /** null = unlimited */
   durationMinutes: number | null;
   mode: Mode;
+  projectType: ProjectType;
   goal: string;
   languages: string[];
   autoRun: boolean;
@@ -23,7 +25,8 @@ export interface AiConfig {
 
 export const DEFAULT_SESSION: SessionConfig = {
   durationMinutes: 300,
-  mode: "strategic",
+  mode: "project",
+  projectType: "python-cli",
   goal: "Build a small command-line toolkit of useful utilities, one feature at a time.",
   languages: ["python", "javascript"],
   autoRun: true,
@@ -109,8 +112,13 @@ export interface PromptContext {
   files: string[];
   lastOutput?: string | undefined;
   lastExitCode?: number | null | undefined;
+  /** File that failed several times in a row; the bot is told to move on. */
+  stuckFile?: string | undefined;
   rand: () => number;
 }
+
+/** After this many failed runs of the same file, the bot moves on. */
+export const STUCK_LIMIT = 3;
 
 function pick<T>(items: readonly T[], rand: () => number): T {
   const i = Math.min(items.length - 1, Math.floor(rand() * items.length));
@@ -128,8 +136,9 @@ export function buildPrompt(cfg: SessionConfig, ctx: PromptContext): { system: s
     };
   }
   const recent = ctx.files.slice(-12).join(", ") || "none yet";
-  const feedback =
-    ctx.lastOutput !== undefined
+  const feedback = ctx.stuckFile
+    ? `\n${ctx.stuckFile} has failed ${STUCK_LIMIT} times in a row. Leave it as it is and write a different, new file instead.`
+    : ctx.lastOutput !== undefined
       ? `\nLast run exited with code ${ctx.lastExitCode ?? "unknown"}. Output (tail):\n${ctx.lastOutput.slice(-1500)}\nIf it failed, fix that file first (reuse its filename).`
       : "";
   return {

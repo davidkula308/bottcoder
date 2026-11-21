@@ -1,5 +1,5 @@
 // NightShift Coder — Electron main process (Windows-first, also works on Linux/macOS).
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, powerSaveBlocker } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -21,7 +21,7 @@ app.setName(APP_NAME);
 if (isWin) app.setAppUserModelId("com.nightshift.coder");
 
 function iconPath() {
-  return path.join(__dirname, "icon.png");
+  return path.join(__dirname, isWin ? "icon.ico" : "icon.png");
 }
 
 function createWindow() {
@@ -52,7 +52,7 @@ function createWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(iconPath()).resize({ width: 16, height: 16 }));
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 }));
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -108,7 +108,7 @@ ipcMain.handle("ai:generate", async (event, req) => {
         model: req.model,
         stream: true,
         temperature: 0.4,
-        max_tokens: 2048,
+        max_tokens: 4096,
         messages: [
           { role: "system", content: req.system },
           { role: "user", content: req.prompt },
@@ -131,7 +131,7 @@ ipcMain.handle("ai:generate", async (event, req) => {
       method: "POST",
       signal: aiController.signal,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: req.model, system: req.system, prompt: req.prompt, stream: true, options: { temperature: 0.4 } }),
+      body: JSON.stringify({ model: req.model, system: req.system, prompt: req.prompt, stream: true, options: { temperature: 0.3, num_ctx: 8192 } }),
     });
     if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
     await readStream(res, (line) => {
@@ -332,3 +332,213 @@ ipcMain.handle("ide:open", async (_e, { id, folder, file }) => {
 });
 
 ipcMain.handle("app:flags", () => ({ launchedAtStartup: launchedHidden }));
+
+/* ---------------- Model download ---------------- */
+
+ipcMain.handle("ai:pull", async (event, req) => {
+  const base = (req.ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
+  const res = await fetch(`${base}/api/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: req.model, name: req.model, stream: true }),
+  });
+  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  let failed = null;
+  await readStream(res, (line) => {
+    try {
+      const j = JSON.parse(line);
+      if (j.error) failed = j.error;
+      const percent = j.total ? Math.round((j.completed || 0) / j.total * 100) : null;
+      event.sender.send("ai:pullProgress", { id: req.id, text: { status: j.status || j.error || "", percent } });
+    } catch {}
+  });
+  if (failed) throw new Error(failed);
+});
+
+/* ---------------- Project files ---------------- */
+
+const SKIP_DIRS = new Set([".git", ".nightshift", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".idea", ".vscode"]);
+
+function insideRoot(root, rel) {
+  const rootAbs = path.resolve(root);
+  const target = path.resolve(rootAbs, rel);
+  if (target !== rootAbs && !target.startsWith(rootAbs + path.sep)) throw new Error("Outside the workspace");
+  return target;
+}
+
+ipcMain.handle("fs:list", async (_e, root) => {
+  const out = [];
+  const rootAbs = path.resolve(root);
+  async function walk(dir, depth) {
+    if (depth > 8 || out.length >= 400) return;
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (out.length >= 400) return;
+      const abs = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (!SKIP_DIRS.has(ent.name)) await walk(abs, depth + 1);
+      } else if (ent.isFile()) {
+        const st = await fs.promises.stat(abs);
+        out.push({ path: path.relative(rootAbs, abs).split(path.sep).join("/"), size: st.size, mtime: st.mtimeMs });
+      }
+    }
+  }
+  await walk(rootAbs, 0);
+  return out;
+});
+
+ipcMain.handle("fs:read", async (_e, { root, rel }) => {
+  try {
+    const target = insideRoot(root, rel);
+    const st = await fs.promises.stat(target);
+    if (st.size > 200 * 1024) return null;
+    return await fs.promises.readFile(target, "utf8");
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle("fs:exists", async (_e, { root, rel }) => {
+  try {
+    await fs.promises.access(insideRoot(root, rel));
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle("fs:remove", async (_e, { root, rel }) => {
+  const target = insideRoot(root, rel);
+  if (target === path.resolve(root)) throw new Error("Refusing to delete the workspace itself");
+  await fs.promises.rm(target, { recursive: true, force: true });
+});
+
+/* ---------------- Stay awake ---------------- */
+
+let awakeId = null;
+ipcMain.handle("sys:keepAwake", (_e, on) => {
+  if (on && awakeId === null) awakeId = powerSaveBlocker.start("prevent-app-suspension");
+  if (!on && awakeId !== null) {
+    powerSaveBlocker.stop(awakeId);
+    awakeId = null;
+  }
+});
+
+ipcMain.handle("sys:openUrl", (_e, url) => {
+  if (/^https:\/\//.test(url)) return shell.openExternal(url);
+});
+
+/* ---------------- Setup check ---------------- */
+
+async function refreshPath() {
+  if (!isWin) return;
+  const out = await run(
+    `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"`,
+  );
+  const fresh = out.trim();
+  if (fresh) process.env.PATH = fresh;
+}
+
+function firstLine(s) {
+  return (s || "").split(/\r?\n/).find((l) => l.trim())?.trim() || null;
+}
+
+ipcMain.handle("setup:check", async (_e, ollamaUrl) => {
+  await refreshPath();
+  Object.keys(resolvedIde).forEach((k) => delete resolvedIde[k]);
+  const base = (ollamaUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
+  let running = false;
+  let version = null;
+  let models = [];
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const v = await fetch(`${base}/api/version`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (v.ok) {
+      running = true;
+      version = (await v.json()).version || null;
+      const tags = await fetch(`${base}/api/tags`);
+      if (tags.ok) models = ((await tags.json()).models || []).map((m) => m.name);
+    }
+  } catch {}
+  const ollamaBin =
+    firstLine(await run(`${isWin ? "where" : "which"} ollama`)) ||
+    (isWin && fs.existsSync(expand("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe")) ? "found" : null);
+  if (!running && ollamaBin && isWin) {
+    // Try to start the Ollama background service once.
+    const exe = ollamaBin === "found" ? expand("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") : ollamaBin;
+    try {
+      spawn(`"${exe}"`, ["serve"], { shell: true, detached: true, stdio: "ignore", windowsHide: true }).unref();
+    } catch {}
+  }
+  const pyCmd = isWin ? "python --version" : "python3 --version || python --version";
+  let python = firstLine(await run(pyCmd));
+  if (python && /Microsoft Store|was not found/i.test(python)) python = null;
+  const node = firstLine(await run("node --version"));
+  const git = firstLine(await run("git --version"));
+  const winget = isWin ? !!firstLine(await run("winget --version")) : false;
+  return {
+    ollama: { installed: !!ollamaBin || running, running, version },
+    models,
+    python,
+    node,
+    git,
+    winget,
+    ramGB: Math.round(os.totalmem() / 1024 ** 3),
+    cpu: os.cpus()[0]?.model || "unknown",
+    cores: os.cpus().length,
+  };
+});
+
+/* ---------------- Live typing (VS Code add-on) ---------------- */
+
+const LIVE_URL = "http://127.0.0.1:47615";
+let liveQueue = Promise.resolve();
+function livePost(route, body) {
+  liveQueue = liveQueue
+    .then(() =>
+      fetch(`${LIVE_URL}${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    )
+    .catch(() => {});
+  return liveQueue.then(() => undefined);
+}
+
+ipcMain.handle("live:ping", async () => {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 800);
+    const r = await fetch(`${LIVE_URL}/ping`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return (await r.json()).app || "VS Code";
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle("live:begin", (_e, { root, rel }) => livePost("/begin", { file: insideRoot(root, rel) }));
+ipcMain.handle("live:append", (_e, text) => livePost("/append", { text }));
+ipcMain.handle("live:end", (_e, { root, rel, content }) => livePost("/end", { file: insideRoot(root, rel), content }));
+
+ipcMain.handle("ide:installAddon", async (_e, id) => {
+  const ide = IDES.find((i) => i.id === id);
+  const bin = ide && (await resolveIde(ide));
+  if (!bin) return "Editor not found";
+  const vsix = path.join(__dirname, "nightshift-live.vsix");
+  if (!fs.existsSync(vsix)) return "Add-on file missing from this build";
+  const out = await new Promise((resolve) =>
+    exec(`"${bin}" --install-extension "${vsix}" --force`, { windowsHide: true }, (err, so, se) =>
+      resolve(err ? `Install failed: ${(se || err.message).slice(0, 200)}` : "Add-on installed. Restart or reload the editor once."),
+    ),
+  );
+  return out;
+});

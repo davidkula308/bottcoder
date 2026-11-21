@@ -1,6 +1,8 @@
 // Contract between the UI and the desktop shell (electron/preload.cjs).
 // In the browser preview a simulated bridge is used so the UI can be tried safely.
 import type { Provider } from "./engine";
+import type { FileEntry } from "./project";
+import type { SetupReport } from "./setup";
 
 export interface GenerateRequest {
   provider: Provider;
@@ -9,6 +11,11 @@ export interface GenerateRequest {
   prompt: string;
   ollamaUrl: string;
   nimKey: string;
+}
+
+export interface PullProgress {
+  status: string;
+  percent: number | null;
 }
 
 export interface RunningApp {
@@ -32,11 +39,16 @@ export interface DesktopBridge {
     generate(req: GenerateRequest, onChunk: (text: string) => void): Promise<string>;
     cancel(): Promise<void>;
     listModels(req: { provider: Provider; ollamaUrl: string; nimKey: string }): Promise<string[]>;
+    pull(req: { ollamaUrl: string; model: string }, onProgress: (p: PullProgress) => void): Promise<void>;
   };
   fs: {
     pickFolder(): Promise<string | null>;
     writeFile(root: string, rel: string, content: string): Promise<string>;
     openFolder(path: string): Promise<void>;
+    list(root: string): Promise<FileEntry[]>;
+    read(root: string, rel: string): Promise<string | null>;
+    exists(root: string, rel: string): Promise<boolean>;
+    remove(root: string, rel: string): Promise<void>;
   };
   terminal: {
     run(cmd: string, cwd: string, timeoutSec: number, onData: (text: string) => void): Promise<number | null>;
@@ -49,10 +61,22 @@ export interface DesktopBridge {
     getStartup(): Promise<boolean>;
     setStartup(on: boolean): Promise<boolean>;
     createShortcuts(): Promise<string>;
+    keepAwake(on: boolean): Promise<void>;
+    openUrl(url: string): Promise<void>;
+  };
+  setup: {
+    check(ollamaUrl: string): Promise<SetupReport>;
   };
   ide: {
     detect(): Promise<IdeInfo[]>;
     open(id: string, folder: string, file?: string): Promise<string>;
+    installAddon(id: string): Promise<string>;
+    live: {
+      ping(): Promise<string | null>;
+      begin(root: string, rel: string): Promise<void>;
+      append(text: string): Promise<void>;
+      end(root: string, rel: string, content: string): Promise<void>;
+    };
   };
 }
 
@@ -132,12 +156,55 @@ if __name__ == "__main__":
 \`\`\``,
 ];
 
+const DEMO_PLAN = `- [ ] Create the app package, main.py and a first passing test
+- [ ] Add a word counter for text files
+- [ ] Add a command to find duplicate lines
+- [ ] Add a JSON pretty-printer command
+- [ ] Add argparse sub-commands for every tool
+- [ ] Write a README with usage examples`;
+
+function demoTaskReply(id: number, title: string): string {
+  const F = "\`\`\`";
+  return `FILE: app/tool${id}.py
+${F}python
+"""${title}"""
+
+
+def run(text: str) -> dict:
+    words = text.split()
+    return {"words": len(words), "unique": len(set(words))}
+${F}
+
+FILE: tests/test_tool${id}.py
+${F}python
+import unittest
+
+from app.tool${id} import run
+
+
+class Tool${id}Test(unittest.TestCase):
+    def test_counts_words(self):
+        self.assertEqual(run("a b a")["words"], 3)
+
+    def test_counts_unique(self):
+        self.assertEqual(run("a b a")["unique"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
+${F}
+
+SUMMARY: ${title}.`;
+}
+
 const DEMO_OUTPUT: Record<string, string> = {
   "utils/primes.py": "Found 78,498 primes below 1,000,000 in 61.4 ms\nLast five: [999953, 999959, 999961, 999979, 999983]\n",
   "utils/maze.js": "█████████████\n█   █       █\n█ █ █ █████ █\n█ █   █   █ █\n█ █████ █ █ █\n█       █   █\n█████████████\nMaze 12x8 generated.\n",
   "utils/wordcount.py": "  it | ### 3\n  keeps | ## 2\n  coding | ## 2\n  the | ## 2\n  nightshift | # 1\n",
 };
 
+const demoModels = ["qwen2.5-coder:1.5b"];
+const demoFiles: Record<string, string> = {};
 let demoCancelled = false;
 let demoIndex = 0;
 
@@ -146,9 +213,14 @@ export const demoBridge: DesktopBridge = {
   platform: "preview",
   launchedAtStartup: false,
   ai: {
-    async generate(_req, onChunk) {
+    async generate(req, onChunk) {
       demoCancelled = false;
-      const text = SAMPLES[demoIndex++ % SAMPLES.length] ?? "";
+      const task = /CURRENT TASK #(\d+): (.+)/.exec(req.prompt);
+      const text = req.prompt.includes("markdown checklist")
+        ? DEMO_PLAN
+        : task
+          ? demoTaskReply(Number(task[1]), task[2] ?? "")
+          : (SAMPLES[demoIndex++ % SAMPLES.length] ?? "");
       await sleep(900);
       for (let i = 0; i < text.length; i += 3) {
         if (demoCancelled) throw new Error("cancelled");
@@ -161,23 +233,47 @@ export const demoBridge: DesktopBridge = {
       demoCancelled = true;
     },
     async listModels() {
-      return ["qwen2.5-coder:1.5b", "qwen2.5-coder:3b", "deepseek-coder:1.3b"];
+      return [...demoModels];
+    },
+    async pull(req, onProgress) {
+      for (let p = 0; p <= 100; p += 10) {
+        onProgress({ status: p < 100 ? "downloading" : "success", percent: p });
+        await sleep(200);
+      }
+      if (!demoModels.includes(req.model)) demoModels.push(req.model);
     },
   },
   fs: {
     async pickFolder() {
       return "C:\\Users\\you\\NightShift\\workspace";
     },
-    async writeFile(root, rel) {
+    async writeFile(root, rel, content) {
+      demoFiles[rel] = content;
       return `${root}\\${rel.replace(/\//g, "\\")}`;
     },
     async openFolder() {},
+    async list() {
+      return Object.keys(demoFiles).map((path, i) => ({ path, size: demoFiles[path]?.length ?? 0, mtime: i }));
+    },
+    async read(_root, rel) {
+      return demoFiles[rel] ?? null;
+    },
+    async exists(_root, rel) {
+      return rel === ".git" ? demoFiles["PLAN.md"] !== undefined : demoFiles[rel] !== undefined;
+    },
+    async remove(_root, rel) {
+      for (const k of Object.keys(demoFiles)) if (k === rel || k.startsWith(`${rel}/`)) delete demoFiles[k];
+    },
   },
   terminal: {
     async run(cmd, _cwd, _t, onData) {
       await sleep(500);
       const file = /"([^"]+)"/.exec(cmd)?.[1] ?? "";
-      const out = DEMO_OUTPUT[file] ?? `(preview) ran: ${cmd}\n`;
+      const out = cmd.includes("unittest")
+        ? "test_counts_unique ... ok\ntest_counts_words ... ok\n\nRan 2 tests in 0.001s\n\nOK\n"
+        : cmd.startsWith("git")
+          ? ""
+          : (DEMO_OUTPUT[file] ?? `(preview) ran: ${cmd}\n`);
       for (const line of out.split("\n")) {
         onData(line + "\n");
         await sleep(90);
@@ -211,6 +307,26 @@ export const demoBridge: DesktopBridge = {
     async createShortcuts() {
       return "(preview) Start Menu and Desktop shortcuts are created in the desktop app.";
     },
+    async keepAwake() {},
+    async openUrl(url) {
+      window.open(url, "_blank", "noopener");
+    },
+  },
+  setup: {
+    async check() {
+      await sleep(400);
+      return {
+        ollama: { installed: true, running: true, version: "0.6.2" },
+        models: [...demoModels],
+        python: "Python 3.12.4",
+        node: "v20.15.0",
+        git: null,
+        winget: true,
+        ramGB: 8,
+        cpu: "Intel(R) Core(TM) i5-8250U",
+        cores: 8,
+      };
+    },
   },
   ide: {
     async detect() {
@@ -228,6 +344,17 @@ export const demoBridge: DesktopBridge = {
     },
     async open(id) {
       return `(preview) would open workspace in ${id}`;
+    },
+    async installAddon(id) {
+      return `(preview) would install the live-typing add-on into ${id}`;
+    },
+    live: {
+      async ping() {
+        return null;
+      },
+      async begin() {},
+      async append() {},
+      async end() {},
     },
   },
 };

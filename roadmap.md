@@ -5,3 +5,9 @@
 - [x] Running apps list, IDE linking (VS Code etc.)
 - [x] Start with Windows + Start Menu shortcut (pin to Start)
 - [x] Windows desktop package (zip) in Files
+- [ ] Setup helper: check Ollama/Python/Node/Git/RAM, one-click installs (winget), one-click model download, recommended model
+- [ ] Keep PC awake during sessions
+- [ ] Real project mode: plan file, multi-file, reads own code, partial edits, tests, 3-strike stuck guard, Git commits/rollback, resumes across sessions, project types
+- [ ] Stuck guard for strategic mode
+- [ ] Live typing inside VS Code (add-on + one-click install)
+- [ ] Proper Windows installer (icon, Start Menu + Desktop shortcuts, uninstaller)
