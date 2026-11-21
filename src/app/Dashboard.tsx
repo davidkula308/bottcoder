@@ -14,6 +14,8 @@ import type { LiveMode } from "./live";
 import { ActivitySection, UpdateSection } from "./panels-activity";
 import { DEFAULT_ACTIVITY, isActivityDue, pickActivityApp, type ActivityConfig } from "./activity";
 import type { UpdateInfo } from "./update";
+import { DEFAULT_SPEED, resolveSpeed, type SpeedSetting } from "./pacer";
+import { addRecord, type SessionRecord } from "./history";
 import {
   DEFAULT_AI,
   DEFAULT_SESSION,
@@ -54,7 +56,10 @@ export function Dashboard() {
     typingCps: 30,
     theme: "night" as "night" | "day",
     autoUpdate: true,
+    saveFiles: true,
   });
+  const [speed] = useStored<SpeedSetting>("speed", DEFAULT_SPEED);
+  const [, setHistory] = useStored<SessionRecord[]>("history", []);
   const [activity, setActivity] = useStored<ActivityConfig>("activity", DEFAULT_ACTIVITY);
   const [activityDone, setActivityDone] = useState(0);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -83,7 +88,10 @@ export function Dashboard() {
     followIde: prefs.followIde,
     liveMode: prefs.liveMode,
     typingCps: prefs.typingCps,
+    speed: resolveSpeed(speed),
+    saveFiles: prefs.saveFiles,
     onTerminal: appendTerm,
+    onSessionEnd: (rec) => setHistory((list) => addRecord(list, rec)),
   });
 
   // Theme on <html> so every layer (including popovers) follows it.
@@ -143,12 +151,12 @@ export function Dashboard() {
   );
 
   const startBot = useCallback(() => {
-    if (!prefs.workspace) {
+    if (prefs.saveFiles && !prefs.workspace) {
       setTab("session");
       return;
     }
     if (!bot.running) bot.start();
-  }, [bot, prefs.workspace]);
+  }, [bot, prefs.workspace, prefs.saveFiles]);
 
   // Auto-start after boot
   const autoStarted = useRef(false);
