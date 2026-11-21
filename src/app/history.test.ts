@@ -16,9 +16,9 @@ describe("previous sessions", () => {
     expect(resumeLeftMs(open)).toBe(228 * MIN);
     expect(canResume(open)).toBe(true);
   });
-  it("doesn't offer to continue a finished or barely started session", () => {
-    expect(canResume({ startedAt: 0, elapsedMs: 299.5 * MIN, durationMinutes: 300, savedAt: 0 })).toBe(false);
-    expect(canResume({ startedAt: 0, elapsedMs: 20_000, durationMinutes: null, savedAt: 0 })).toBe(false);
+  it("offers to continue even short sessions, but never a finished session", () => {
+    expect(canResume({ startedAt: 0, elapsedMs: 300 * MIN, durationMinutes: 300, savedAt: 0 })).toBe(false);
+    expect(canResume({ startedAt: 0, elapsedMs: 20_000, durationMinutes: null, savedAt: 0 })).toBe(true);
     expect(canResume({ startedAt: 0, elapsedMs: 10 * MIN, durationMinutes: null, savedAt: 0 })).toBe(true);
   });
 });

@@ -634,6 +634,26 @@ ipcMain.handle("setup:installOllama", async (event, { id, ollamaUrl }) => {
   return true;
 });
 
+/* ---------------- Scratch folder (code that is tested, then thrown away) ---------------- */
+
+const SCRATCH = path.join(os.tmpdir(), "NightShift", "scratch");
+try {
+  fs.rmSync(SCRATCH, { recursive: true, force: true });
+} catch {}
+ipcMain.handle("fs:scratchDir", () => {
+  fs.rmSync(SCRATCH, { recursive: true, force: true });
+  fs.mkdirSync(SCRATCH, { recursive: true });
+  return SCRATCH;
+});
+ipcMain.handle("fs:clearScratch", () => {
+  fs.rmSync(SCRATCH, { recursive: true, force: true });
+});
+ipcMain.handle("fs:defaultWorkspace", () => {
+  const p = path.join(app.getPath("documents"), "NightShift", "workspace");
+  fs.mkdirSync(p, { recursive: true });
+  return p;
+});
+
 /* ---------------- Activity apps (open an app, then close it) ---------------- */
 
 function runPs(script, timeoutMs = 30000) {

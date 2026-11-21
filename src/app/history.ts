@@ -1,4 +1,5 @@
 // Previous sessions, kept on this PC so they survive closing and reopening the app.
+import type { SessionConfig } from "./engine";
 
 export interface SessionRecord {
   id: string;
@@ -19,6 +20,8 @@ export interface OpenSession {
   elapsedMs: number;
   durationMinutes: number | null;
   savedAt: number;
+  session?: SessionConfig;
+  record?: SessionRecord;
 }
 
 export const HISTORY_LIMIT = 50;
@@ -33,11 +36,11 @@ export function resumeLeftMs(open: OpenSession): number | null {
   return Math.max(0, open.durationMinutes * 60_000 - open.elapsedMs);
 }
 
-/** Worth offering "continue": it ran at least a minute and has time left. */
+/** Offer continue for every unfinished session, even when it was closed quickly. */
 export function canResume(open: OpenSession | null): boolean {
-  if (!open || open.elapsedMs < 60_000) return false;
+  if (!open || !Number.isFinite(open.elapsedMs) || open.elapsedMs <= 0) return false;
   const left = resumeLeftMs(open);
-  return left === null || left > 60_000;
+  return left === null || left > 0;
 }
 
 export function totalCodingMs(list: SessionRecord[]): number {

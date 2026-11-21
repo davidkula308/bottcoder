@@ -16,6 +16,9 @@ import { DEFAULT_ACTIVITY, isActivityDue, pickActivityApp, type ActivityConfig }
 import type { UpdateInfo } from "./update";
 import { DEFAULT_SPEED, resolveSpeed, type SpeedSetting } from "./pacer";
 import { addRecord, type SessionRecord } from "./history";
+import { canResume, type OpenSession } from "./history";
+import { planOptimization, type OptimizePlan } from "./optimize";
+import { HistoryPanel, KeepFiles, OptimizeDialog, SpeedDialog } from "./panels-session";
 import {
   DEFAULT_AI,
   DEFAULT_SESSION,
@@ -32,6 +35,7 @@ const TABS = [
   { id: "apps", label: "Open apps" },
   { id: "ide", label: "Editors" },
   { id: "setup", label: "Setup" },
+  { id: "history", label: "History" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -56,10 +60,18 @@ export function Dashboard() {
     typingCps: 30,
     theme: "night" as "night" | "day",
     autoUpdate: true,
-    saveFiles: true,
+    saveFiles: false,
   });
-  const [speed] = useStored<SpeedSetting>("speed", DEFAULT_SPEED);
-  const [, setHistory] = useStored<SessionRecord[]>("history", []);
+  const [speed, setSpeed] = useStored<SpeedSetting>("speed", DEFAULT_SPEED);
+  const [history, setHistory] = useStored<SessionRecord[]>("history", []);
+  const [speedOpen, setSpeedOpen] = useState(false);
+  const [openSession, setOpenSession] = useState<OpenSession | null>(null);
+  const [resumeMs, setResumeMs] = useState(0);
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
+  const [optimizePlan, setOptimizePlan] = useState<OptimizePlan | null>(null);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeStatus, setOptimizeStatus] = useState("");
+  const [downloads, setDownloads] = useState(true);
   const [activity, setActivity] = useStored<ActivityConfig>("activity", DEFAULT_ACTIVITY);
   const [activityDone, setActivityDone] = useState(0);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -91,8 +103,59 @@ export function Dashboard() {
     speed: resolveSpeed(speed),
     saveFiles: prefs.saveFiles,
     onTerminal: appendTerm,
-    onSessionEnd: (rec) => setHistory((list) => addRecord(list, rec)),
+    onSessionEnd: (rec) => { setHistory((list) => addRecord(list, rec)); setOpenSession(null); },
   });
+
+  useEffect(() => {
+    try {
+      const previous = JSON.parse(localStorage.getItem("nightshift:openSession") ?? "null") as OpenSession | null;
+      if (previous?.record) setHistory((list) => previous.record ? addRecord(list, previous.record) : list);
+      if (canResume(previous)) setOpenSession(previous);
+      if (localStorage.getItem("nightshift:optimizationPromptSeen") !== "true") setOptimizeOpen(true);
+    } catch { /* storage unavailable */ }
+  }, [setHistory]);
+
+  useEffect(() => {
+    if (!optimizeOpen) return;
+    let cancelled = false;
+    setOptimizeStatus("Checking your PC…");
+    Promise.all([bridge.setup.check(ai.ollamaUrl), bridge.ide.detect()]).then(([report, editors]) => {
+      if (cancelled) return;
+      setOptimizePlan(planOptimization(report, editors));
+      setOptimizeStatus("");
+    }).catch(() => { if (!cancelled) setOptimizeStatus("PC checks are unavailable. You can still start surface coding."); });
+    return () => { cancelled = true; };
+  }, [optimizeOpen, bridge, ai.ollamaUrl]);
+
+  const closeOptimization = (open: boolean) => {
+    setOptimizeOpen(open);
+    if (!open) try { localStorage.setItem("nightshift:optimizationPromptSeen", "true"); } catch { /* storage unavailable */ }
+  };
+  const optimize = async () => {
+    if (!optimizePlan || optimizing || bot.running) return;
+    const p = optimizePlan;
+    setOptimizing(true);
+    try {
+      const workspace = prefs.saveFiles ? await bridge.fs.defaultWorkspace().catch(() => prefs.workspace) : prefs.workspace;
+      setAi({ ...ai, provider: "ollama", model: p.model });
+      setSession({ ...session, mode: p.mode, projectType: p.projectType, languages: p.languages, autoRun: p.autoRun });
+      setPrefs({ ...prefs, workspace, followIde: p.followIde, liveMode: p.liveMode });
+      setOptimizeStatus("Settings applied. Surface coding is ready, even without the AI.");
+      if (p.followIde) {
+        setOptimizeStatus("Connecting your coding app…");
+        await bridge.ide.installAddon(p.followIde).catch((e: unknown) => appendTerm(`\n[setup] Editor connection unavailable: ${String(e)}. Coding here instead.\n`));
+        if (workspace) await bridge.ide.open(p.followIde, workspace).catch(() => {});
+      }
+      if (downloads) {
+        if (p.installOllama) await bridge.setup.installOllama(ai.ollamaUrl, (v) => setOptimizeStatus(`${v.status}${v.percent === null ? "" : ` · ${Math.round(v.percent)}%`}`));
+        if (p.downloadModel) await bridge.ai.pull({ ollamaUrl: ai.ollamaUrl, model: p.model }, (v) => setOptimizeStatus(`${v.status}${v.percent === null ? "" : ` · ${Math.round(v.percent)}%`}`));
+      }
+      setOptimizeStatus("Ready. Your settings have been saved on this PC.");
+      try { localStorage.setItem("nightshift:optimizationPromptSeen", "true"); } catch { /* storage unavailable */ }
+    } catch (e) {
+      setOptimizeStatus(`Settings saved; AI download did not finish. Start coding still works with surface code. ${String(e).replace(/^Error invoking remote method '[^']+': /, "")}`);
+    } finally { setOptimizing(false); }
+  };
 
   // Theme on <html> so every layer (including popovers) follows it.
   useEffect(() => {
@@ -151,19 +214,28 @@ export function Dashboard() {
   );
 
   const startBot = useCallback(() => {
-    if (prefs.saveFiles && !prefs.workspace) {
-      setTab("session");
-      return;
-    }
     if (!bot.running) bot.start();
-  }, [bot, prefs.workspace, prefs.saveFiles]);
+  }, [bot]);
+
+  const requestStart = () => { setResumeMs(0); setSpeedOpen(true); };
+  const requestResume = () => {
+    if (!openSession || !canResume(openSession)) return;
+    if (openSession.session) setSession(openSession.session);
+    else setSession({ ...session, durationMinutes: openSession.durationMinutes });
+    setResumeMs(openSession.elapsedMs);
+    setSpeedOpen(true);
+  };
+  const dismissResume = () => {
+    setOpenSession(null);
+    try { localStorage.removeItem("nightshift:openSession"); } catch { /* storage unavailable */ }
+  };
 
   // Auto-start after boot
   const autoStarted = useRef(false);
   useEffect(() => {
     if (autoStarted.current || !bridge.launchedAtStartup) return;
     const t = setTimeout(() => {
-      if (prefs.autoStart && prefs.workspace) {
+      if (prefs.autoStart) {
         autoStarted.current = true;
         startBot();
       }
@@ -274,6 +346,16 @@ export function Dashboard() {
       : formatClock(left);
 
   const active = bot.status !== "idle";
+  const dialogs = <>
+    <SpeedDialog open={speedOpen} onOpenChange={setSpeedOpen} speed={speed} setSpeed={setSpeed} keep={prefs.saveFiles} setKeep={(saveFiles) => setPrefs({ ...prefs, saveFiles })} resuming={resumeMs > 0} onStart={() => {
+      const previous = resumeMs > 0 ? openSession?.record : undefined;
+      if (previous) setHistory((list) => list.filter((r) => r.id !== previous.id));
+      setSpeedOpen(false);
+      dismissResume();
+      void bot.start(resumeMs, previous);
+    }} />
+    <OptimizeDialog open={optimizeOpen} onOpenChange={closeOptimization} plan={optimizePlan} status={optimizeStatus} busy={optimizing} downloads={downloads} setDownloads={setDownloads} onOptimize={() => void optimize()} />
+  </>;
   const planInfo = bot.plan ? progress(bot.plan) : null;
   const statusDot = (
     <span
@@ -291,6 +373,7 @@ export function Dashboard() {
   if (focus) {
     return (
       <div className="relative flex h-screen flex-col bg-surface">
+        {dialogs}
         <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} big />
         <div className="absolute bottom-4 right-4 flex items-center gap-3 rounded-full border bg-card/90 px-3 py-1.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
           {statusDot}
@@ -303,7 +386,7 @@ export function Dashboard() {
               stop
             </button>
           ) : (
-            <button onClick={startBot} className="font-mono text-[11px] uppercase text-primary">
+            <button onClick={requestStart} className="font-mono text-[11px] uppercase text-primary">
               start
             </button>
           )}
@@ -321,6 +404,7 @@ export function Dashboard() {
 
   return (
     <div className="grid-dots flex min-h-screen flex-col bg-background lg:h-screen">
+      {dialogs}
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b bg-card/80 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-2.5">
@@ -332,7 +416,7 @@ export function Dashboard() {
               NightShift Coder
             </h1>
             <p className="label-caps mt-1">
-              {ai.provider === "ollama" ? "ollama" : "nvidia nim"} · {ai.model}
+              {bot.practice ? "built-in surface coding · offline" : `${ai.provider === "ollama" ? "ollama" : "nvidia nim"} · ${ai.model}`}
             </p>
           </div>
         </div>
@@ -344,7 +428,7 @@ export function Dashboard() {
           </span>
         </div>
 
-        <div className="ml-auto flex items-center gap-4">
+        <div className="ml-auto grid w-full grid-cols-[1fr_auto] items-center gap-3 sm:flex sm:w-auto sm:gap-4">
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -374,11 +458,11 @@ export function Dashboard() {
             </div>
           </div>
           {bot.running ? (
-            <Button variant="halt" size="xl" onClick={() => bot.stop()}>
+            <Button variant="halt" size="xl" className="col-span-2 sm:col-auto" onClick={() => bot.stop()}>
               <Power /> Stop
             </Button>
           ) : (
-            <Button variant="signal" size="xl" onClick={startBot}>
+            <Button variant="signal" size="xl" className="col-span-2 sm:col-auto" onClick={requestStart}>
               <Play /> Start coding
             </Button>
           )}
@@ -390,7 +474,7 @@ export function Dashboard() {
           onClick={() => setTab("setup")}
           className="border-b bg-accent px-4 py-1.5 text-center font-mono text-[11px] text-warn hover:underline"
         >
-          Setup needed before coding: {setupMissing.join(" · ")} — open Setup
+          Optional AI setup: {setupMissing.join(" · ")} — surface coding is available now
         </button>
       )}
       {bridge.isDesktop && update?.available && (
@@ -408,9 +492,10 @@ export function Dashboard() {
           app for the real thing.
         </div>
       )}
+      {!bot.running && canResume(openSession) && <div className="flex flex-wrap items-center justify-center gap-3 border-b bg-accent px-4 py-2 text-sm"><span>Previous session unfinished</span><Button size="sm" variant="signal" onClick={requestResume}><Play />Continue session</Button><Button size="sm" variant="ghost" onClick={dismissResume}>Dismiss</Button></div>}
 
-      <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_400px]">
-        <main className="grid min-h-0 gap-3 lg:grid-rows-[minmax(0,1fr)_260px]">
+      <div className="grid min-h-0 min-w-0 flex-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <main className="grid min-h-0 min-w-0 gap-3 lg:grid-rows-[minmax(0,1fr)_260px]">
           <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} />
           <TerminalPanel
             output={term}
@@ -420,7 +505,7 @@ export function Dashboard() {
           />
         </main>
 
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card">
+        <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
           <div className="border-b px-4 py-3">
             <p className="font-mono text-xs text-foreground">{bot.message}</p>
             <div className="mt-2 flex gap-4 font-mono text-[11px] text-muted-foreground">
@@ -452,20 +537,22 @@ export function Dashboard() {
             ))}
           </nav>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {tab === "session" && (
+            {tab === "session" && (<div className="space-y-4">
+              <KeepFiles checked={prefs.saveFiles} onChange={(saveFiles) => setPrefs({ ...prefs, saveFiles })} disabled={bot.running} />
               <SessionPanel
                 session={session}
                 setSession={setSession}
                 workspace={prefs.workspace}
                 setWorkspace={(workspace) => setPrefs({ ...prefs, workspace })}
                 locked={bot.running}
+                saveFiles={prefs.saveFiles}
                 plan={bot.plan}
                 onResetProject={async () => {
                   if (!prefs.workspace) return;
                   await archiveProject(bridge, prefs.workspace);
                   await bot.reloadPlan();
                 }}
-              />
+              /></div>
             )}
             {tab === "schedule" && (
               <div className="space-y-5">
@@ -479,6 +566,7 @@ export function Dashboard() {
               </div>
             )}
             {tab === "apps" && <AppsPanel />}
+            {tab === "history" && <HistoryPanel records={history} openSession={bot.running ? null : openSession} onResume={requestResume} onDismiss={dismissResume} />}
             {tab === "ide" && (
               <IdePanel
                 workspace={prefs.workspace}
@@ -492,6 +580,8 @@ export function Dashboard() {
             )}
             {tab === "setup" && (
               <div className="space-y-5">
+                <Button variant="outline" className="w-full" disabled={bot.running} onClick={() => setOptimizeOpen(true)}>Optimize for this PC</Button>
+                {optimizeStatus && <p role="status" className="text-xs text-muted-foreground">{optimizeStatus}</p>}
                 <UpdateSection
                   info={update}
                   onCheck={checkUpdate}
@@ -529,9 +619,9 @@ export function Dashboard() {
                   )}
                 >
                   {f.exitCode === undefined
-                    ? "saved"
+                    ? f.practice ? "surface only" : f.kept ? "saved" : "discarded"
                     : f.exitCode === 0
-                      ? "ok"
+                      ? f.kept ? "ok · kept" : "ok · discarded"
                       : `exit ${f.exitCode ?? "timeout"}`}
                 </span>
               </div>

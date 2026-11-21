@@ -41,3 +41,6 @@ use the editor.
 - Windows builds: `scripts/build-windows.sh` (packager + NSIS `installer/nightshift.nsi`, per-user install, no admin).
 - In-app updates: `scripts/build-windows.sh` also writes `public/updates` (manifest with sha256 + app files); the installed app downloads changed files from the published site's `/updates`, swaps them into `resources/app` and restarts. Why: no reinstall per release; only the Electron runtime itself needs a new installer. Bump VERSION each release and publish.
 - Activity apps rules live in `src/app/activity.ts`; `sys:blink` closes only process IDs it started. Why: never close windows the user already had open.
+- Session settings, history, unfinished-session checkpoints, and the last code screen persist in localStorage after hydration; practice signatures persist separately. Why: desktop sessions survive restarts without a cloud account and fallback coding never needs an AI service.
+- Surface practice code never touches disk; AI discard mode uses the Electron scratch folder and removes it on stop. Why: throwaway sessions cannot modify the user's saved workspace.
+- Setup and speed dialogs plus history presentation live in `src/app/panels-session.tsx`, while Dashboard coordinates bridge actions. Why: web and desktop share the same session controls without duplicating PC access.

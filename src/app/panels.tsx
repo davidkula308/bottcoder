@@ -25,6 +25,7 @@ export function SessionPanel({
   locked,
   plan,
   onResetProject,
+  saveFiles = true,
 }: {
   session: SessionConfig;
   setSession: (s: SessionConfig) => void;
@@ -33,12 +34,13 @@ export function SessionPanel({
   locked: boolean;
   plan: ProjectState | null;
   onResetProject: () => void;
+  saveFiles?: boolean;
 }) {
   const dur = session.durationMinutes === null ? "unlimited" : String(session.durationMinutes);
   const preset = DURATIONS.some((d) => d.value === dur) ? dur : "custom";
   return (
     <div className="space-y-5">
-      <Field label="Workspace folder" hint="Every file the bot writes is saved inside this folder, and code runs only here.">
+      {saveFiles && <Field label="Workspace folder" hint="AI files are kept in this folder. Practice code is shown only.">
         <div className="flex gap-2">
           <div className={`${inputClass} truncate`}>{workspace || "not chosen"}</div>
           <Button
@@ -52,7 +54,8 @@ export function SessionPanel({
             <FolderOpen /> Choose
           </Button>
         </div>
-      </Field>
+      </Field>}
+      {!saveFiles && <p className="text-xs text-muted-foreground">Temporary session · AI files are tested, then discarded. Surface code is never saved.</p>}
 
       <Field label="Coding time">
         <Segmented
@@ -86,7 +89,7 @@ export function SessionPanel({
         />
         <p className="text-xs leading-relaxed text-muted-foreground">
           {session.mode === "project"
-            ? "Plans a real project, builds it across many files with tests, saves every working step with Git and continues where it left off next time."
+            ? saveFiles ? "Builds a multi-file project with tests and keeps its plan for the next session." : "Builds and tests a multi-file project in a temporary folder, discarded when the session ends."
             : session.mode === "strategic"
               ? "One file at a time toward your goal, fixing errors from each run."
               : "Fun stand-alone programs on random topics."}

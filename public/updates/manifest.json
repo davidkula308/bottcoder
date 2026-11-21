@@ -1,16 +1,16 @@
 {
-  "version": "1.2.0",
-  "notes": "Opens chosen apps during coding, writes code inside VS Code with its terminal mirrored there, and updates itself.",
+  "version": "1.3.0",
+  "notes": "Automatic PC optimization, offline surface coding fallback, typing-speed picker, discard mode, and saved session history with resume.",
   "files": [
     {
-      "path": "dist-electron/renderer/assets/index-BWy_2liD.css",
-      "size": 106080,
-      "sha256": "dd2bc726599946f769b0c48eff10585738cbe33ccf7448e83b2af5edc00838e6"
+      "path": "dist-electron/renderer/assets/index-DtQKRciP.css",
+      "size": 106575,
+      "sha256": "a5a0c272138ec11fff3a31bee92f724b74d3510209580de533498e1664536a28"
     },
     {
-      "path": "dist-electron/renderer/assets/index-Bq0eRmyT.js",
-      "size": 312149,
-      "sha256": "eea2d554ecff9fa52ace0ce7c74dc4447ce0662c8623064b49fa8efd756e2c93"
+      "path": "dist-electron/renderer/assets/index-eMW8ZoDV.js",
+      "size": 412096,
+      "sha256": "6691625af874bf2519e5a2da10a75a555467556d7e727cbfea98b4a42d4f0299"
     },
     {
       "path": "dist-electron/renderer/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2",
@@ -165,7 +165,7 @@
     {
       "path": "dist-electron/renderer/index.html",
       "size": 559,
-      "sha256": "fec899fc7ad3e4d539b20e46100607feec738a7fff929abd9b42220796d2d422"
+      "sha256": "24dcbf876a2b4ff6d92d95a115509c648f669c10ed7d9602c7bb9140159ec2d3"
     },
     {
       "path": "electron/icon.ico",
@@ -179,18 +179,18 @@
     },
     {
       "path": "electron/main.cjs",
-      "size": 35159,
-      "sha256": "6d7af2317cb14c34135ede4c2e8dd1fdad9b61a9c05def64ab04cec7845e1e1b"
+      "size": 35838,
+      "sha256": "1c9c706896d8ec6e6150d8a3e6e01aef88f3051d905a36da6885d1334a362edc"
     },
     {
       "path": "electron/nightshift-live.vsix",
       "size": 4295,
-      "sha256": "f3192a75d6dbfbb07e4f24baff1565f9bf51db61ac0c46b0dd4388093365e40a"
+      "sha256": "a2e3e2bf0a2068734237704dfc9eaf55345aa67944a79461a6ddc82e0ac17add"
     },
     {
       "path": "electron/preload.cjs",
-      "size": 3485,
-      "sha256": "c71ae9c8eac67d2a1d56bec7360b52c2f527c43820d697bc538f376f02c1bf95"
+      "size": 3678,
+      "sha256": "8a6957a793fb555bf888173883f2cefd0f3e986d01ea0a2e30b63e0a25a30a30"
     },
     {
       "path": "electron/typer.ps1",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "f4e2540044f759331abd3a3b729b18e14d110b2d9fa6fc81c0497326c6d9aacc"
+      "sha256": "dbaff67103de2b2f37097fcc904624c8c20c06923e9f7830e622c0084c6b5fe9"
     }
   ]
 }

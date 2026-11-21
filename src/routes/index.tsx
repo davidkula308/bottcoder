@@ -7,7 +7,7 @@ export const Route = createFileRoute("/")({
       { title: "NightShift Coder — offline AI coding bot for Windows" },
       {
         name: "description",
-        content: "A desktop coding bot that writes and runs code for hours on your NVIDIA GPU, fully offline.",
+        content: "A Windows coding bot with offline surface coding, optional local AI, human typing speeds, saved sessions, and VS Code integration. No graphics card required.",
       },
       { property: "og:title", content: "NightShift Coder — offline AI coding bot" },
       {

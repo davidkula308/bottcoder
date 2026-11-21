@@ -32,17 +32,17 @@ export function CodeSurface({
   const typing = status === "writing" || status === "thinking";
 
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden bg-surface ${big ? "flex-1" : "rounded-lg border"}`}>
+    <section className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface ${big ? "flex-1" : "rounded-lg border"}`}>
       <header className={`flex items-center gap-3 border-b bg-card ${big ? "px-6" : "px-3"}`}>
-        <div className="-mb-px flex items-center gap-2 border-b-2 border-primary py-2 font-mono text-xs text-foreground">
+        <div className="-mb-px flex min-w-0 items-center gap-2 border-b-2 border-primary py-2 font-mono text-xs text-foreground">
           <span className="size-2 rounded-full bg-signal" />
-          {file?.name ?? "waiting-for-next-file"}
+          <span className="truncate">{file?.name ?? "waiting-for-next-file"}</span>
         </div>
         <span className="label-caps ml-auto">{file?.language ?? "—"}</span>
       </header>
-      <div ref={ref} className={`scanlines min-h-[280px] flex-1 overflow-auto py-3 font-mono ${big ? "text-[15px] leading-7" : "text-[13px] leading-6"}`}>
+      <div ref={ref} className={`scanlines min-w-0 flex-1 overflow-auto py-3 font-mono ${big ? "min-h-0 text-[15px] leading-7" : "min-h-[240px] text-[13px] leading-6 lg:min-h-0"}`}>
         {lines.length === 0 ? (
-          <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
             <span className="font-mono text-sm">
               {status === "thinking" ? "thinking" : "idle"}
               <span className="ml-0.5 inline-block h-4 w-2 translate-y-0.5 animate-caret bg-primary" />

@@ -9,6 +9,24 @@ function seeded(seed: number) {
 }
 
 describe("practice code (no AI needed)", () => {
+  it("avoids the programs from a previous session after its signature history is reloaded", () => {
+    const used = new Set<string>();
+    const codes = new Set<string>();
+    const random = seeded(21);
+    for (let i = 0; i < 100; i++) {
+      const s = writePractice(random, used);
+      used.add(s.signature);
+      codes.add(s.code);
+    }
+    const reopened = new Set(JSON.parse(JSON.stringify([...used])) as string[]);
+    const replay = seeded(21);
+    for (let i = 0; i < 100; i++) {
+      const s = writePractice(replay, reopened);
+      expect(codes.has(s.code)).toBe(false);
+      expect(reopened.has(s.signature)).toBe(false);
+      reopened.add(s.signature);
+    }
+  });
   it("writes 300 programs in a row without repeating one", () => {
     const used = new Set<string>();
     const codes = new Set<string>();

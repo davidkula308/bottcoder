@@ -30,8 +30,8 @@ export const DEFAULT_SPEED: SpeedSetting = { id: "human", customCps: 12 };
 
 export function resolveSpeed(s: SpeedSetting): { cps: number | null; humanLike: boolean } {
   if (s.id === "custom") return { cps: Math.min(200, Math.max(1, s.customCps || 12)), humanLike: true };
-  const o = SPEEDS.find((x) => x.id === s.id) ?? SPEEDS[0]!;
-  return { cps: o.cps, humanLike: o.humanLike };
+  const o = SPEEDS.find((x) => x.id === s.id);
+  return o ? { cps: o.cps, humanLike: o.humanLike } : { cps: 3.5, humanLike: true };
 }
 
 /** Delay before showing this character. Averages out to `cps`; human-like adds pauses at line ends. */
@@ -66,7 +66,8 @@ export function createPacer(
       let wait = 0;
       let out = "";
       while (buffer.length && (wait < 16 || out === "")) {
-        const ch = buffer[0]!;
+        const ch = buffer[0];
+        if (ch === undefined) break;
         wait += charDelayMs(ch, cps, speed.humanLike, rand);
         out += ch;
         buffer = buffer.slice(1);

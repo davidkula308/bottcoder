@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 export function useStored<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
   const loaded = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`nightshift:${key}`);
@@ -16,10 +17,13 @@ export function useStored<T>(key: string, initial: T) {
       /* ignore corrupt storage */
     }
     loaded.current = true;
+    setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   useEffect(() => {
-    if (loaded.current) localStorage.setItem(`nightshift:${key}`, JSON.stringify(value));
-  }, [key, value]);
+    if (loaded.current && hydrated) {
+      try { localStorage.setItem(`nightshift:${key}`, JSON.stringify(value)); } catch { /* storage unavailable */ }
+    }
+  }, [key, value, hydrated]);
   return [value, setValue] as const;
 }

@@ -60,7 +60,7 @@ function loadUsed(): Set<string> {
 }
 function saveUsed(used: Set<string>) {
   try {
-    localStorage.setItem(PRACTICE_KEY, JSON.stringify([...used].slice(-5000)));
+    localStorage.setItem(PRACTICE_KEY, JSON.stringify([...used]));
   } catch {
     /* storage full — not important */
   }
@@ -86,12 +86,17 @@ function withPacing(bridge: DesktopBridge, speed: Options["speed"], alive: () =>
 /** Is the AI engine usable right now (running, and the model is there)? */
 async function aiReady(bridge: DesktopBridge, ai: AiConfig): Promise<boolean> {
   if (ai.provider === "nim" && !ai.nimKey.trim()) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const models = await bridge.ai.listModels({ provider: ai.provider, ollamaUrl: ai.ollamaUrl, nimKey: ai.nimKey });
+    const models = await Promise.race([
+      bridge.ai.listModels({ provider: ai.provider, ollamaUrl: ai.ollamaUrl, nimKey: ai.nimKey }),
+      new Promise<string[]>((resolve) => { timer = setTimeout(() => resolve([]), 3000); }),
+    ]);
+    if (ai.provider === "nim" && !models.length) return false;
     return ai.provider === "nim" ? true : hasModel(models, ai.model);
   } catch {
     return false;
-  }
+  } finally { clearTimeout(timer); }
 }
 
 export function useCodingSession(opts: Options) {
@@ -109,6 +114,42 @@ export function useCodingSession(opts: Options) {
   const [plan, setPlan] = useState<ProjectState | null>(null);
   const [practice, setPractice] = useState(false);
   const [message, setMessage] = useState("Ready. Press Start coding.");
+  const screenRef = useRef({ surface, file: currentFile });
+  screenRef.current = { surface, file: currentFile };
+
+  useEffect(() => {
+    try {
+      const screen = JSON.parse(localStorage.getItem("nightshift:lastScreen") ?? "null") as { surface: string; file: { name: string; language: string } | null } | null;
+      if (screen && typeof screen.surface === "string") {
+        setSurface(screen.surface);
+        setCurrentFile(screen.file);
+      }
+    } catch { /* ignore damaged storage */ }
+  }, []);
+
+  useEffect(() => {
+    if (!surface) return;
+    const t = setTimeout(() => {
+      try { localStorage.setItem("nightshift:lastScreen", JSON.stringify({ surface, file: currentFile })); } catch { /* storage unavailable */ }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [surface, currentFile]);
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const checkpoint = () => {
+      if (!statsRef.current.begin) return;
+      try {
+        const st = statsRef.current;
+        const record: SessionRecord = { id: `${startedAt}`, startedAt, endedAt: Date.now(), mode: optsRef.current.session.mode, engine: st.ai && st.practice ? "mixed" : st.ai ? "ai" : "practice", files: st.files, lines: st.lines, kept: st.kept, reason: "App closed during coding." };
+        localStorage.setItem("nightshift:openSession", JSON.stringify({ startedAt, elapsedMs: Date.now() - startedAt, durationMinutes: optsRef.current.session.durationMinutes, session: optsRef.current.session, savedAt: Date.now(), record }));
+        localStorage.setItem("nightshift:lastScreen", JSON.stringify(screenRef.current));
+      } catch { /* storage unavailable */ }
+    };
+    checkpoint();
+    window.addEventListener("beforeunload", checkpoint);
+    return () => window.removeEventListener("beforeunload", checkpoint);
+  }, [startedAt, now]);
 
   useEffect(() => {
     if (!startedAt) return;
@@ -123,17 +164,17 @@ export function useCodingSession(opts: Options) {
 
   const stop = useCallback(async (reason = "Stopped.") => {
     const wasRunning = statsRef.current.begin > 0;
+    const st = statsRef.current;
+    statsRef.current = { ...st, begin: 0 };
+    try { localStorage.removeItem("nightshift:openSession"); } catch { /* storage unavailable */ }
     runRef.current++;
-    setStartedAt(null);
     setStatus("idle");
     setPractice(false);
     setMessage(reason);
     const b = getBridge();
     await Promise.allSettled([b.ai.cancel(), b.terminal.kill(), b.system.keepAwake(false)]);
-    const st = statsRef.current;
     if (wasRunning) {
-      statsRef.current = { ...st, begin: 0 };
-      if (!st.kept) b.fs.clearScratch().catch(() => {});
+      if (!st.kept) await b.fs.clearScratch().catch(() => {});
       optsRef.current.onSessionEnd?.({
         id: `${st.begin}`,
         startedAt: st.begin,
@@ -146,7 +187,12 @@ export function useCodingSession(opts: Options) {
         reason,
       });
     }
+    setStartedAt(null);
   }, []);
+
+  useEffect(() => {
+    if (startedAt && isSessionOver(startedAt, optsRef.current.session.durationMinutes, now)) void stop("Time is up — session finished.");
+  }, [startedAt, now, stop]);
 
   const makeSink = useCallback(async (root: string): Promise<LiveSink | null> => {
     const { liveMode, followIde, typingCps, speed } = optsRef.current;
@@ -196,7 +242,7 @@ export function useCodingSession(opts: Options) {
   }, []);
 
   const start = useCallback(
-    async (resumeElapsedMs = 0) => {
+    async (resumeElapsedMs = 0, previousRecord?: SessionRecord) => {
       const raw = getBridge();
       const myRun = ++runRef.current;
       const begin = Date.now() - Math.max(0, resumeElapsedMs);
@@ -205,11 +251,11 @@ export function useCodingSession(opts: Options) {
       setStartedAt(begin);
       setNow(Date.now());
       setFiles([]);
-      await raw.system.keepAwake(true).catch(() => {});
-
       const keep = optsRef.current.saveFiles;
-      const root = keep && optsRef.current.workspace ? optsRef.current.workspace : await raw.fs.scratchDir().catch(() => "");
-      statsRef.current = { files: 0, lines: 0, ai: false, practice: false, kept: keep && !!optsRef.current.workspace, begin, root };
+      let root = keep ? optsRef.current.workspace : "";
+      statsRef.current = { files: previousRecord?.files ?? 0, lines: previousRecord?.lines ?? 0, ai: previousRecord?.engine === "ai" || previousRecord?.engine === "mixed", practice: previousRecord?.engine === "practice" || previousRecord?.engine === "mixed", kept: keep && !!optsRef.current.workspace, begin, root };
+      await raw.system.keepAwake(true).catch(() => {});
+      if (!alive()) return;
       const used = loadUsed();
       const history: string[] = [];
       const failStreak: Record<string, number> = {};
@@ -225,6 +271,9 @@ export function useCodingSession(opts: Options) {
         setPractice(true);
         setMessage("No AI engine found — writing practice code on screen instead (not saved). It switches to the AI by itself once it's ready.");
       }
+      if (engineOk && !root) root = await (keep ? raw.fs.defaultWorkspace() : raw.fs.scratchDir()).catch(() => "");
+      statsRef.current.root = root;
+      statsRef.current.kept = keep && !!root;
 
       const git = { ok: false };
       if (engineOk && root) {
@@ -236,13 +285,13 @@ export function useCodingSession(opts: Options) {
         const { liveMode, followIde } = optsRef.current;
         if (liveMode === "addon") {
           // Code is written inside VS Code: open the folder there and make sure the add-on is listening.
-          const editor = await connectEditor(raw, { root, preferred: followIde, onNote: setMessage });
-          if (!alive()) return;
-          setMessage(editor ? `Connected to ${editor} — code will be written there.` : "Coding here instead of VS Code.");
+          void connectEditor(raw, { root, preferred: followIde, onNote: (m) => { if (alive()) setMessage(m); } }).then((editor) => {
+            if (alive()) setMessage(editor ? `Connected to ${editor} — code will be written there.` : "Coding here instead of VS Code.");
+          }).catch(() => {});
         }
         if (liveMode === "keyboard" && VSCODE_FAMILY.includes(followIde ?? "")) {
-          const existing = await raw.fs.read(root, ".vscode/settings.json");
-          await raw.fs.writeFile(root, ".vscode/settings.json", mergeSettings(existing));
+          const existing = await raw.fs.read(root, ".vscode/settings.json").catch(() => null);
+          await raw.fs.writeFile(root, ".vscode/settings.json", mergeSettings(existing)).catch(() => {});
         }
       }
 
@@ -258,7 +307,13 @@ export function useCodingSession(opts: Options) {
         // No AI: keep writing practice code, and look for the AI again every few programs.
         if (!engineOk && iter % 5 === 0) {
           engineOk = await aiReady(raw, ai);
-          if (engineOk) setMessage("AI engine found — switching from practice code to real coding.");
+          if (engineOk) {
+            if (!root) root = await (keep ? raw.fs.defaultWorkspace() : raw.fs.scratchDir()).catch(() => "");
+            statsRef.current.root = root;
+            statsRef.current.kept = keep && !!root;
+            if (root && optsRef.current.liveMode === "addon") void connectEditor(raw, { root, preferred: followIde, onNote: (m) => { if (alive()) setMessage(m); } }).catch(() => null);
+            setMessage("AI engine found — switching from practice code to real coding.");
+          }
         }
         if (!engineOk || !root) {
           setPractice(true);
@@ -268,7 +323,7 @@ export function useCodingSession(opts: Options) {
         }
         setPractice(false);
         statsRef.current.ai = true;
-        const sink = await makeSink(root);
+        const sink = await makeSink(root).catch(() => null);
 
         if (session.mode === "project") {
           const reached = await runProjectRound({
@@ -292,10 +347,14 @@ export function useCodingSession(opts: Options) {
               },
               plan: setPlan,
             },
+          }).catch((e: unknown) => {
+            onTerminal(`\n[project] ${String(e)} — switching to surface code.\n`);
+            engineOk = false;
+            return false;
           });
           if (!alive()) return;
           if (!reached) {
-            engineOk = await aiReady(raw, ai);
+            engineOk = false;
             continue;
           }
           setStatus("resting");
@@ -351,7 +410,7 @@ export function useCodingSession(opts: Options) {
         }
         setSurface(parsed.code);
         setCurrentFile({ name: parsed.filename, language: parsed.language });
-        await sink?.finish(parsed.filename, parsed.code);
+        await sink?.finish(parsed.filename, parsed.code).catch(() => {});
         let path = parsed.filename;
         try {
           path = await bridge.fs.writeFile(root, parsed.filename, parsed.code);
@@ -375,7 +434,7 @@ export function useCodingSession(opts: Options) {
           const code = await bridge.terminal.run(cmd, root, session.runTimeoutSeconds, (d) => {
             out += d;
             onTerminal(d);
-          });
+          }).catch((e: unknown) => { onTerminal(`\n[test unavailable] ${String(e)}\n`); return null; });
           if (!alive()) return;
           lastOutput = out;
           lastExit = code;
