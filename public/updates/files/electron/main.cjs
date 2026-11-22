@@ -850,6 +850,21 @@ ipcMain.handle("update:apply", async (event, { id }) => {
 /* ---------------- Live typing (VS Code add-on) ---------------- */
 
 const LIVE_URL = "http://127.0.0.1:47615";
+const ADDON_VERSION = "1.1.1"; // keep equal to vscode-extension/package.json
+let addonRefreshed = false;
+/** An older add-on is answering: install the bundled one once (takes effect when VS Code reloads). */
+function refreshAddon() {
+  if (addonRefreshed) return;
+  addonRefreshed = true;
+  const vsix = path.join(__dirname, "nightshift-live.vsix");
+  if (!fs.existsSync(vsix)) return;
+  void (async () => {
+    for (const ide of IDES.filter((i) => ["vscode", "cursor", "windsurf"].includes(i.id))) {
+      const bin = await resolveIde(ide).catch(() => null);
+      if (bin) exec(`"${bin}" --install-extension "${vsix}" --force`, { windowsHide: true }, () => {});
+    }
+  })();
+}
 let liveQueue = Promise.resolve();
 function livePost(route, body) {
   liveQueue = liveQueue
@@ -873,7 +888,9 @@ ipcMain.handle("live:ping", async () => {
     const r = await fetch(`${LIVE_URL}/ping`, { signal: ctrl.signal });
     clearTimeout(t);
     if (!r.ok) return null;
-    return (await r.json()).app || "VS Code";
+    const info = await r.json();
+    if (info.version !== ADDON_VERSION) refreshAddon();
+    return info.app || "VS Code";
   } catch {
     return null;
   }
@@ -926,12 +943,19 @@ function startTyper() {
   return typer;
 }
 
-function typerSend(line) {
+function typerSend(line, maxMs = 15000) {
   if (!isWin) return Promise.resolve("unsupported");
   const p = startTyper();
   if (!p) return Promise.resolve("unsupported");
   return new Promise((resolve) => {
-    typerWaiting.push(resolve);
+    // A stuck typing helper must not freeze coding: restart it (that answers everything waiting) and move on.
+    const t = setTimeout(() => {
+      try { p.kill(); } catch {}
+    }, maxMs);
+    typerWaiting.push((r) => {
+      clearTimeout(t);
+      resolve(r);
+    });
     p.stdin.write(line + "\n");
   });
 }
@@ -940,7 +964,7 @@ const b64 = (s) => Buffer.from(String(s || ""), "utf8").toString("base64");
 
 ipcMain.handle("kb:type", (_e, { text, mustContain, cps }) => {
   const delay = Math.max(5, Math.round(1000 / Math.max(5, Math.min(120, cps || 30))));
-  return typerSend(`T|${b64(text)}|${b64(mustContain)}|${delay}`);
+  return typerSend(`T|${b64(text)}|${b64(mustContain)}|${delay}`, String(text || "").length * delay * 2 + 15000);
 });
 ipcMain.handle("kb:save", (_e, { mustContain }) => typerSend(`S|${b64(mustContain)}`));
 app.on("will-quit", () => {

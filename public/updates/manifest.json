@@ -1,6 +1,6 @@
 {
-  "version": "1.3.5",
-  "notes": "Typing in VS Code no longer stalls when VS Code is busy or the AI goes silent.",
+  "version": "1.3.6",
+  "notes": "Typing never stalls: time limits for VS Code, the add-on, real keystrokes and silent AI replies.",
   "files": [
     {
       "path": "dist-electron/renderer/assets/index-CzcLsTRD.css",
@@ -179,13 +179,13 @@
     },
     {
       "path": "electron/main.cjs",
-      "size": 35985,
-      "sha256": "7528791e8a1a780b3ea8ebb624349313b064a0788afa3f378722292242256338"
+      "size": 37045,
+      "sha256": "8e6704d4cd90d397566d21439ed6974c1d370a53bbf54630a7b1d9253807280f"
     },
     {
       "path": "electron/nightshift-live.vsix",
-      "size": 4295,
-      "sha256": "3687093a6087909f4abf10dfec46aad6fd655c9a9d2496066e818dc4659337e1"
+      "size": 4466,
+      "sha256": "a77de1016f6c50b0c333d485b7c4983605fbbc9c0225484905ab6b045c00977c"
     },
     {
       "path": "electron/preload.cjs",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "158aed9280584413a5f842b907f9660f92e4997031b9c632d3552196698f8a3e"
+      "sha256": "078175ccb010f0aee8467f6dc0baf5d9e4e4de88857db3b994594898f3423bd3"
     }
   ]
 }

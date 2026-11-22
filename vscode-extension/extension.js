@@ -3,6 +3,7 @@ const vscode = require("vscode");
 const http = require("http");
 
 const PORT = 47615;
+const ADDON_VERSION = "1.1.1"; // keep equal to package.json and ADDON_VERSION in the app
 let server = null;
 let status = null;
 let current = null; // vscode.Uri being typed
@@ -34,7 +35,10 @@ function mirrorTerminal(text) {
 }
 
 function enqueue(fn) {
-  queue = queue.then(fn).catch((e) => console.error("[nightshift]", e));
+  // One stuck editor step must not stop all later typing: give it 8s, then carry on.
+  queue = queue
+    .then(() => Promise.race([fn(), new Promise((_, no) => setTimeout(() => no(new Error("step timed out")), 8000))]))
+    .catch((e) => console.error("[nightshift]", e));
 }
 
 async function editorFor(uri, focus) {
@@ -124,7 +128,7 @@ function activate(context) {
     };
     if (req.method === "GET" && req.url === "/ping") {
       setStatus(current ? "typing" : "connected");
-      return reply(200, { ok: true, app: vscode.env.appName });
+      return reply(200, { ok: true, app: vscode.env.appName, version: ADDON_VERSION });
     }
     if (req.method !== "POST") return reply(404, { ok: false });
     const body = await readBody(req);
