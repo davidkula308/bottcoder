@@ -367,7 +367,7 @@ export const demoBridge: DesktopBridge = {
   },
   update: {
     async check() {
-      return { current: "1.2.0", latest: "1.2.0", available: false, notes: "" };
+      return { current: "Web preview", latest: null, available: false, notes: "Updates install in the Windows app, not the browser preview." };
     },
     async apply() {
       return false;

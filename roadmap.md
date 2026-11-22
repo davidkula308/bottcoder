@@ -27,4 +27,8 @@
 - [x] "Keep files" switch: off = test in the terminal, then throw the code away
 - [x] Validate the finished session flow and create the new Windows installer/update feed
 
-Windows-only installation, real keystrokes, and local AI downloads still need a Windows PC check; the sandbox verifies the shared UI, rules, and release artifacts. Publish the site to serve the 1.3.0 in-app update.
+Windows-only installation, real keystrokes, and local AI downloads still need a Windows PC check; the sandbox verifies the shared UI, rules, and release artifacts. Publish the site to serve the 1.3.1 in-app update.
+
+- [x] Add a direct Windows installer download in chat
+- [x] Add Fetch updates from the published site, installing safely between coding sessions
+- [x] Verify the update flow and create the refreshed Windows installer/update feed

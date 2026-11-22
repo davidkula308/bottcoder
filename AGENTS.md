@@ -44,3 +44,4 @@ use the editor.
 - Session settings, history, unfinished-session checkpoints, and the last code screen persist in localStorage after hydration; practice signatures persist separately. Why: desktop sessions survive restarts without a cloud account and fallback coding never needs an AI service.
 - Surface practice code never touches disk; AI discard mode uses the Electron scratch folder and removes it on stop. Why: throwaway sessions cannot modify the user's saved workspace.
 - Setup and speed dialogs plus history presentation live in `src/app/panels-session.tsx`, while Dashboard coordinates bridge actions. Why: web and desktop share the same session controls without duplicating PC access.
+- Manual Fetch updates uses the update rules in `src/app/update.ts`, shares an operation lock with automatic installation, and queues installation until coding stops. Why: concurrent checks cannot trigger duplicate updates or restart an active coding session.

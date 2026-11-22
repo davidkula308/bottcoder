@@ -11,7 +11,7 @@ import {
   type ActivityConfig,
 } from "./activity";
 import { formatClock } from "./engine";
-import type { UpdateInfo } from "./update";
+import { PUBLISHED_APP_URL, type UpdateInfo } from "./update";
 
 const SOURCE_LABEL: Record<LaunchableApp["source"], string> = {
   light: "light · built into Windows",
@@ -225,28 +225,33 @@ export function ActivitySection({
 
 export function UpdateSection({
   info,
-  onCheck,
+  onFetch,
   onApply,
   progress,
   autoUpdate,
   setAutoUpdate,
+  busy,
+  running,
 }: {
   info: UpdateInfo | null;
-  onCheck: () => void;
+  onFetch: () => void;
   onApply: () => void;
   progress: string | null;
   autoUpdate: boolean;
   setAutoUpdate: (v: boolean) => void;
+  busy: boolean;
+  running: boolean;
 }) {
   const desktop = getBridge().isDesktop;
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="flex items-center justify-between">
         <span className="label-caps">updates</span>
-        <Button variant="ghost" size="sm" onClick={onCheck}>
-          <RefreshCw /> Check
+        <Button variant="signal" size="sm" onClick={onFetch} disabled={busy}>
+          <RefreshCw className={busy ? "animate-spin" : ""} /> {busy ? "Fetching…" : "Fetch updates"}
         </Button>
       </div>
+      <a href={PUBLISHED_APP_URL} target="_blank" rel="noreferrer" className="block break-all font-mono text-[11px] text-primary underline underline-offset-4">{PUBLISHED_APP_URL}</a>
       <div className="font-mono text-[11px] text-muted-foreground">
         {info ? `this version ${info.current}` : "checking…"}
         {info?.latest && ` · newest ${info.latest}`}
@@ -258,12 +263,12 @@ export function UpdateSection({
             Version <span className="font-mono text-primary">{info.latest}</span> is ready.
           </div>
           {info.notes && <div className="text-muted-foreground">{info.notes}</div>}
-          <Button variant="signal" size="sm" disabled={!!progress || !desktop} onClick={onApply}>
-            <Download /> Update and restart
+          <Button variant="signal" size="sm" disabled={busy || !desktop} onClick={onApply}>
+            <Download /> {running ? "Install when coding stops" : "Update and restart"}
           </Button>
         </div>
       )}
-      {progress && <p className="font-mono text-[11px] text-primary">{progress}</p>}
+      {progress && <p role="status" className="break-words font-mono text-[11px] text-primary">{progress}</p>}
       <SwitchRow
         label="Update automatically"
         hint="Downloads new versions by itself and restarts only when no coding session is running. No installer needed."

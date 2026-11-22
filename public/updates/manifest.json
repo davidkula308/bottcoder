@@ -1,16 +1,16 @@
 {
-  "version": "1.3.0",
-  "notes": "Automatic PC optimization, offline surface coding fallback, typing-speed picker, discard mode, and saved session history with resume.",
+  "version": "1.3.1",
+  "notes": "Fetch updates checks the published app, downloads verified changed files, and installs when coding stops.",
   "files": [
     {
-      "path": "dist-electron/renderer/assets/index-DtQKRciP.css",
-      "size": 106575,
-      "sha256": "a5a0c272138ec11fff3a31bee92f724b74d3510209580de533498e1664536a28"
+      "path": "dist-electron/renderer/assets/index-C7hBBWOC.js",
+      "size": 414461,
+      "sha256": "1dc63c9bbf5b708cffb0878329bc13e07c468af68d6718b1dddea4ad76a8ecaa"
     },
     {
-      "path": "dist-electron/renderer/assets/index-eMW8ZoDV.js",
-      "size": 412096,
-      "sha256": "6691625af874bf2519e5a2da10a75a555467556d7e727cbfea98b4a42d4f0299"
+      "path": "dist-electron/renderer/assets/index-Ck-s8qsp.css",
+      "size": 106649,
+      "sha256": "a6c29f3781624863708020c4280f7f15a923ba36f8a8de234d2b788d2a606c47"
     },
     {
       "path": "dist-electron/renderer/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2",
@@ -165,7 +165,7 @@
     {
       "path": "dist-electron/renderer/index.html",
       "size": 559,
-      "sha256": "24dcbf876a2b4ff6d92d95a115509c648f669c10ed7d9602c7bb9140159ec2d3"
+      "sha256": "2f5bbf3acfbaaa06cc291dd5c017d8b518f6d3756861bdffad7987770cdf7c4f"
     },
     {
       "path": "electron/icon.ico",
@@ -185,7 +185,7 @@
     {
       "path": "electron/nightshift-live.vsix",
       "size": 4295,
-      "sha256": "a2e3e2bf0a2068734237704dfc9eaf55345aa67944a79461a6ddc82e0ac17add"
+      "sha256": "dba70f19f512c371e5431a86878be136bb79856ffba43278adbbab6940803c90"
     },
     {
       "path": "electron/preload.cjs",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "dbaff67103de2b2f37097fcc904624c8c20c06923e9f7830e622c0084c6b5fe9"
+      "sha256": "d85108972a17a673262b7eefa20ae0b7a3bb4e6c4e4cd1c7257b56df32b1ed29"
     }
   ]
 }

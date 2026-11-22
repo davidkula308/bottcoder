@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.3.0}"
-NOTES="${NOTES:-Automatic PC optimization, offline surface coding fallback, typing-speed picker, discard mode, and saved session history with resume.}"
+VERSION="${VERSION:-1.3.1}"
+NOTES="${NOTES:-Fetch updates checks the published app, downloads verified changed files, and installs when coding stops.}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"

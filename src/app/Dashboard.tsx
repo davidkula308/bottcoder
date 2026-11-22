@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Cpu, FileCode2, Maximize2, Minimize2, Moon, Play, Power, Sun } from "lucide-react";
+import { Cpu, FileCode2, Maximize2, Minimize2, Moon, Play, Power, RefreshCw, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getBridge } from "./bridge";
@@ -13,7 +13,7 @@ import { missingForSession } from "./setup";
 import type { LiveMode } from "./live";
 import { ActivitySection, UpdateSection } from "./panels-activity";
 import { DEFAULT_ACTIVITY, isActivityDue, pickActivityApp, type ActivityConfig } from "./activity";
-import type { UpdateInfo } from "./update";
+import { fetchAndInstallUpdate, type UpdateInfo } from "./update";
 import { DEFAULT_SPEED, resolveSpeed, type SpeedSetting } from "./pacer";
 import { addRecord, type SessionRecord } from "./history";
 import { canResume, type OpenSession } from "./history";
@@ -76,6 +76,9 @@ export function Dashboard() {
   const [activityDone, setActivityDone] = useState(0);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateProgress, setUpdateProgress] = useState<string | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState(false);
+  const updateTaskRef = useRef(false);
   const [focus, setFocus] = useState(false);
   const [setupMissing, setSetupMissing] = useState<string[]>([]);
   const [schedules, setSchedules] = useStored<Schedule[]>("schedules", []);
@@ -105,6 +108,8 @@ export function Dashboard() {
     onTerminal: appendTerm,
     onSessionEnd: (rec) => { setHistory((list) => addRecord(list, rec)); setOpenSession(null); },
   });
+  const runningRef = useRef(bot.running);
+  runningRef.current = bot.running;
 
   useEffect(() => {
     try {
@@ -214,10 +219,10 @@ export function Dashboard() {
   );
 
   const startBot = useCallback(() => {
-    if (!bot.running) bot.start();
+    if (!bot.running && !updateTaskRef.current) bot.start();
   }, [bot]);
 
-  const requestStart = () => { setResumeMs(0); setSpeedOpen(true); };
+  const requestStart = () => { if (updateTaskRef.current) return; setResumeMs(0); setSpeedOpen(true); };
   const requestResume = () => {
     if (!openSession || !canResume(openSession)) return;
     if (openSession.session) setSession(openSession.session);
@@ -310,14 +315,53 @@ export function Dashboard() {
     );
   }, [bridge]);
   const applyUpdate = useCallback(async () => {
+    if (updateTaskRef.current) return;
+    if (!bridge.isDesktop) {
+      setUpdateProgress("Open the installed Windows app to fetch and install updates.");
+      return;
+    }
+    if (runningRef.current) {
+      setPendingUpdate(true);
+      setUpdateProgress("Update queued. It will install when coding stops.");
+      return;
+    }
+    updateTaskRef.current = true;
+    setUpdateBusy(true);
+    setPendingUpdate(false);
     setUpdateProgress("starting update…");
+    let restarting = false;
     try {
-      await bridge.update.apply((p) => setUpdateProgress(p.status));
+      const applied = await bridge.update.apply((p) => setUpdateProgress(p.status));
+      restarting = applied;
+      if (!applied) setUpdateProgress("The latest published version is already installed.");
     } catch (e) {
       setUpdateProgress(
         `update failed: ${String((e as Error).message).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, "")}`,
       );
+    } finally { if (!restarting) { updateTaskRef.current = false; setUpdateBusy(false); } }
+  }, [bridge]);
+  const fetchUpdates = useCallback(async () => {
+    if (updateTaskRef.current) return;
+    setTab("setup");
+    if (!bridge.isDesktop) {
+      setUpdateProgress("Open the installed Windows app to fetch and install updates from https://bottcoder.lovable.app.");
+      return;
     }
+    updateTaskRef.current = true;
+    setUpdateBusy(true);
+    setPendingUpdate(false);
+    let restarting = false;
+    try {
+      const result = await fetchAndInstallUpdate({
+        check: () => bridge.update.check(),
+        apply: (onProgress) => bridge.update.apply((p) => onProgress(p.status)),
+        isRunning: () => runningRef.current,
+        onInfo: setUpdate,
+        onStatus: setUpdateProgress,
+      });
+      setPendingUpdate(result === "queued");
+      restarting = result === "installed";
+    } finally { if (!restarting) { updateTaskRef.current = false; setUpdateBusy(false); } }
   }, [bridge]);
   useEffect(() => {
     checkUpdate();
@@ -327,13 +371,14 @@ export function Dashboard() {
   useEffect(() => {
     if (
       bridge.isDesktop &&
-      prefs.autoUpdate &&
+      (prefs.autoUpdate || pendingUpdate) &&
       update?.available &&
       !bot.running &&
-      !updateProgress
+      !updateBusy &&
+      (!updateProgress || pendingUpdate)
     )
       applyUpdate();
-  }, [bridge.isDesktop, prefs.autoUpdate, update, bot.running, updateProgress, applyUpdate]);
+  }, [bridge.isDesktop, prefs.autoUpdate, pendingUpdate, update, bot.running, updateBusy, updateProgress, applyUpdate]);
 
   const left = bot.startedAt ? remainingMs(bot.startedAt, session.durationMinutes, bot.now) : null;
   const elapsed = bot.startedAt ? bot.now - bot.startedAt : 0;
@@ -348,6 +393,7 @@ export function Dashboard() {
   const active = bot.status !== "idle";
   const dialogs = <>
     <SpeedDialog open={speedOpen} onOpenChange={setSpeedOpen} speed={speed} setSpeed={setSpeed} keep={prefs.saveFiles} setKeep={(saveFiles) => setPrefs({ ...prefs, saveFiles })} resuming={resumeMs > 0} onStart={() => {
+      if (updateTaskRef.current) return;
       const previous = resumeMs > 0 ? openSession?.record : undefined;
       if (previous) setHistory((list) => list.filter((r) => r.id !== previous.id));
       setSpeedOpen(false);
@@ -430,6 +476,9 @@ export function Dashboard() {
 
         <div className="ml-auto grid w-full grid-cols-[1fr_auto] items-center gap-3 sm:flex sm:w-auto sm:gap-4">
           <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={fetchUpdates} disabled={updateBusy} title="Fetch and install updates from the published app">
+              <RefreshCw className={updateBusy ? "animate-spin" : ""} />Fetch updates
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -462,7 +511,7 @@ export function Dashboard() {
               <Power /> Stop
             </Button>
           ) : (
-            <Button variant="signal" size="xl" className="col-span-2 sm:col-auto" onClick={requestStart}>
+            <Button variant="signal" size="xl" className="col-span-2 sm:col-auto" onClick={requestStart} disabled={updateBusy}>
               <Play /> Start coding
             </Button>
           )}
@@ -584,9 +633,11 @@ export function Dashboard() {
                 {optimizeStatus && <p role="status" className="text-xs text-muted-foreground">{optimizeStatus}</p>}
                 <UpdateSection
                   info={update}
-                  onCheck={checkUpdate}
+                  onFetch={fetchUpdates}
                   onApply={applyUpdate}
                   progress={updateProgress}
+                  busy={updateBusy}
+                  running={bot.running}
                   autoUpdate={prefs.autoUpdate}
                   setAutoUpdate={(autoUpdate) => setPrefs({ ...prefs, autoUpdate })}
                 />
