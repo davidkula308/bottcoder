@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.3.1}"
-NOTES="${NOTES:-Fetch updates checks the published app, downloads verified changed files, and installs when coding stops.}"
+VERSION="${VERSION:-1.3.2}"
+NOTES="${NOTES:-Windowed focus view shows code and output only while keeping the Windows taskbar visible.}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"

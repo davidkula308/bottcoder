@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TerminalSquare, CornerDownLeft, Square } from "lucide-react";
 import type { BotStatus } from "./use-coding-session";
 import { tokenize, type TokenKind } from "./highlight";
@@ -17,11 +17,13 @@ export function CodeSurface({
   file,
   status,
   big = false,
+  actions,
 }: {
   code: string;
   file: { name: string; language: string } | null;
   status: BotStatus;
   big?: boolean;
+  actions?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -39,6 +41,7 @@ export function CodeSurface({
           <span className="truncate">{file?.name ?? "waiting-for-next-file"}</span>
         </div>
         <span className="label-caps ml-auto">{file?.language ?? "—"}</span>
+        {actions}
       </header>
       <div ref={ref} className={`scanlines min-w-0 flex-1 overflow-auto py-3 font-mono ${big ? "min-h-0 text-[15px] leading-7" : "min-h-[240px] text-[13px] leading-6 lg:min-h-0"}`}>
         {lines.length === 0 ? (
@@ -82,11 +85,13 @@ export function TerminalPanel({
   onRun,
   onKill,
   cwd,
+  outputOnly = false,
 }: {
   output: string;
   onRun: (cmd: string) => void;
   onKill: () => void;
   cwd: string;
+  outputOnly?: boolean;
 }) {
   const ref = useRef<HTMLPreElement>(null);
   const [cmd, setCmd] = useState("");
@@ -96,8 +101,8 @@ export function TerminalPanel({
   }, [output]);
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-terminal">
-      <header className="flex items-center gap-2 border-b px-3 py-2">
+    <section aria-label="Terminal output" className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-terminal ${outputOnly ? "border-t" : "rounded-lg border"}`}>
+      {!outputOnly && <header className="flex items-center gap-2 border-b px-3 py-2">
         <TerminalSquare className="size-4 text-primary" />
         <span className="label-caps">terminal</span>
         <span className="truncate font-mono text-[11px] text-muted-foreground">{cwd}</span>
@@ -107,14 +112,14 @@ export function TerminalPanel({
         >
           <Square className="size-3" /> kill
         </button>
-      </header>
+      </header>}
       <pre
         ref={ref}
-        className="min-h-[160px] flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-5 text-terminal-foreground"
+        className={`flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-5 text-terminal-foreground ${outputOnly ? "min-h-0" : "min-h-[160px]"}`}
       >
         {output || "Terminal connected. Output from every run lands here.\n"}
       </pre>
-      <form
+      {!outputOnly && <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!cmd.trim()) return;
@@ -131,7 +136,7 @@ export function TerminalPanel({
           className="flex-1 bg-transparent font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground"
         />
         <CornerDownLeft className="size-3.5 text-muted-foreground" />
-      </form>
+      </form>}
     </section>
   );
 }

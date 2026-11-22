@@ -45,3 +45,4 @@ use the editor.
 - Surface practice code never touches disk; AI discard mode uses the Electron scratch folder and removes it on stop. Why: throwaway sessions cannot modify the user's saved workspace.
 - Setup and speed dialogs plus history presentation live in `src/app/panels-session.tsx`, while Dashboard coordinates bridge actions. Why: web and desktop share the same session controls without duplicating PC access.
 - Manual Fetch updates uses the update rules in `src/app/update.ts`, shares an operation lock with automatic installation, and queues installation until coding stops. Why: concurrent checks cannot trigger duplicate updates or restart an active coding session.
+- Focus presentation reuses the CodeSurface action slot and TerminalPanel output-only variant. Why: it preserves the same live code and terminal output without duplicating session logic or terminal controls.

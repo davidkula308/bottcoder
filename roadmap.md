@@ -12,7 +12,7 @@
 - [x] Live typing inside VS Code (add-on + one-click install)
 - [x] Proper Windows installer (icon, Start Menu + Desktop shortcuts, uninstaller)
 - [x] Wire new features into the screen (Project style + plan view, setup checklist, live typing switch)
-- [x] Focus view: hide everything except the coding screen
+- [x] Focus view: hide everything except code and output within the normal app window
 - [x] Theme switch: light theme, white code background, blue/red code colors (syntax colors)
 - [x] Real keyboard typing: types code with real keystrokes into the editor in front (counts as PC activity), screen kept on during sessions
 - [x] Rebuild Windows download + installer into Files
@@ -27,8 +27,9 @@
 - [x] "Keep files" switch: off = test in the terminal, then throw the code away
 - [x] Validate the finished session flow and create the new Windows installer/update feed
 
-Windows-only installation, real keystrokes, and local AI downloads still need a Windows PC check; the sandbox verifies the shared UI, rules, and release artifacts. Publish the site to serve the 1.3.1 in-app update.
+Windows-only installation, real keystrokes, and local AI downloads still need a Windows PC check; the sandbox verifies the shared UI, rules, and release artifacts. Publish the site to serve the 1.3.2 in-app update.
 
 - [x] Add a direct Windows installer download in chat
 - [x] Add Fetch updates from the published site, installing safely between coding sessions
 - [x] Verify the update flow and create the refreshed Windows installer/update feed
+- [x] Windowed focus view: code and output only, no native fullscreen, taskbar stays visible

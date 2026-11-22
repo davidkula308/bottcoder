@@ -167,20 +167,15 @@ export function Dashboard() {
     document.documentElement.classList.toggle("theme-day", prefs.theme === "day");
   }, [prefs.theme]);
 
-  // Focus view: only the coding screen. Esc leaves it.
+  // Focus view stays in the app window; Windows keeps its taskbar. Esc leaves it.
   const toggleFocus = useCallback((on: boolean) => {
     setFocus(on);
-    if (on) document.documentElement.requestFullscreen?.().catch(() => {});
-    else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFocus(false);
-    const onFs = () => !document.fullscreenElement && setFocus(false);
     window.addEventListener("keydown", onKey);
-    document.addEventListener("fullscreenchange", onFs);
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.removeEventListener("fullscreenchange", onFs);
     };
   }, []);
 
@@ -418,32 +413,13 @@ export function Dashboard() {
 
   if (focus) {
     return (
-      <div className="relative flex h-screen flex-col bg-surface">
-        {dialogs}
-        <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} big />
-        <div className="absolute bottom-4 right-4 flex items-center gap-3 rounded-full border bg-card/90 px-3 py-1.5 opacity-40 backdrop-blur transition-opacity hover:opacity-100">
-          {statusDot}
-          <span className="font-mono text-xs tabular-nums text-primary">{clock}</span>
-          {bot.running ? (
-            <button
-              onClick={() => bot.stop()}
-              className="font-mono text-[11px] uppercase text-destructive"
-            >
-              stop
-            </button>
-          ) : (
-            <button onClick={requestStart} className="font-mono text-[11px] uppercase text-primary">
-              start
-            </button>
-          )}
-          <button
-            aria-label="Leave focus view"
-            onClick={() => toggleFocus(false)}
-            className="text-muted-foreground hover:text-foreground"
-          >
+      <div className="grid h-dvh min-w-0 grid-rows-[minmax(0,2fr)_minmax(0,1fr)] bg-surface">
+        <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} big actions={
+          <Button variant="ghost" size="icon" aria-label="Leave focus view" title="Return to dashboard" onClick={() => toggleFocus(false)}>
             <Minimize2 className="size-4" />
-          </button>
-        </div>
+          </Button>
+        } />
+        <TerminalPanel output={term} cwd={prefs.workspace} onKill={() => bridge.terminal.kill()} onRun={(cmd) => void runInTerminal(cmd, 120)} outputOnly />
       </div>
     );
   }
@@ -491,8 +467,8 @@ export function Dashboard() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Show only the coding screen"
-              title="Coding screen only (Esc to leave)"
+              aria-label="Show only code and output"
+              title="Code and output only"
               onClick={() => toggleFocus(true)}
             >
               <Maximize2 />
