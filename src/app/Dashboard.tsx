@@ -10,7 +10,7 @@ import { useCodingSession, type BotStatus } from "./use-coding-session";
 import { archiveProject } from "./project-runner";
 import { progress } from "./project";
 import { missingForSession } from "./setup";
-import type { LiveMode } from "./live";
+import type { LiveMode, WriteTarget } from "./live";
 import { ActivitySection, UpdateSection } from "./panels-activity";
 import { DEFAULT_ACTIVITY, isActivityDue, pickActivityApp, type ActivityConfig } from "./activity";
 import { fetchAndInstallUpdate, type UpdateInfo } from "./update";
@@ -18,7 +18,7 @@ import { DEFAULT_SPEED, resolveSpeed, type SpeedSetting } from "./pacer";
 import { addRecord, type SessionRecord } from "./history";
 import { canResume, type OpenSession } from "./history";
 import { planOptimization, type OptimizePlan } from "./optimize";
-import { HistoryPanel, KeepFiles, OptimizeDialog, SpeedDialog } from "./panels-session";
+import { HistoryPanel, KeepFiles, OptimizeDialog, SpeedDialog, VsCodeNotice } from "./panels-session";
 import {
   DEFAULT_AI,
   DEFAULT_SESSION,
@@ -61,7 +61,9 @@ export function Dashboard() {
     theme: "night" as "night" | "day",
     autoUpdate: true,
     saveFiles: false,
+    writeTarget: "app" as WriteTarget,
   });
+  const [projectName, setProjectName] = useState("");
   const [speed, setSpeed] = useStored<SpeedSetting>("speed", DEFAULT_SPEED);
   const [history, setHistory] = useStored<SessionRecord[]>("history", []);
   const [speedOpen, setSpeedOpen] = useState(false);
@@ -87,7 +89,7 @@ export function Dashboard() {
 
   // Everything shown in the app's terminal is also mirrored into VS Code's "NightShift" terminal when writing there.
   const mirrorRef = useRef(false);
-  mirrorRef.current = prefs.liveMode === "addon";
+  mirrorRef.current = prefs.liveMode === "addon" || prefs.writeTarget === "vscode";
   const appendTerm = useCallback(
     (t: string) => {
       setTerm((s) => (s + t).slice(-40_000));
@@ -105,6 +107,8 @@ export function Dashboard() {
     typingCps: prefs.typingCps,
     speed: resolveSpeed(speed),
     saveFiles: prefs.saveFiles,
+    writeTarget: prefs.writeTarget ?? "app",
+    projectName,
     onTerminal: appendTerm,
     onSessionEnd: (rec) => { setHistory((list) => addRecord(list, rec)); setOpenSession(null); },
   });
@@ -387,7 +391,7 @@ export function Dashboard() {
 
   const active = bot.status !== "idle";
   const dialogs = <>
-    <SpeedDialog open={speedOpen} onOpenChange={setSpeedOpen} speed={speed} setSpeed={setSpeed} keep={prefs.saveFiles} setKeep={(saveFiles) => setPrefs({ ...prefs, saveFiles })} resuming={resumeMs > 0} onStart={() => {
+    <SpeedDialog open={speedOpen} onOpenChange={setSpeedOpen} speed={speed} setSpeed={setSpeed} keep={prefs.saveFiles} setKeep={(saveFiles) => setPrefs({ ...prefs, saveFiles })} resuming={resumeMs > 0} target={prefs.writeTarget ?? "app"} setTarget={(writeTarget) => setPrefs({ ...prefs, writeTarget })} projectName={projectName} setProjectName={setProjectName} onStart={() => {
       if (updateTaskRef.current) return;
       const previous = resumeMs > 0 ? openSession?.record : undefined;
       if (previous) setHistory((list) => list.filter((r) => r.id !== previous.id));
@@ -521,7 +525,7 @@ export function Dashboard() {
 
       <div className="grid min-h-0 min-w-0 flex-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_400px]">
         <main className="grid min-h-0 min-w-0 gap-3 lg:grid-rows-[minmax(0,1fr)_260px]">
-          <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} />
+          {bot.vscodeProject?.connected ? <VsCodeNotice project={bot.vscodeProject} file={bot.currentFile?.name ?? null} status={bot.status} /> : <CodeSurface code={bot.surface} file={bot.currentFile} status={bot.status} />}
           <TerminalPanel
             output={term}
             cwd={prefs.workspace}

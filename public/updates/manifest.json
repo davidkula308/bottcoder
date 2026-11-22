@@ -1,16 +1,16 @@
 {
-  "version": "1.3.2",
-  "notes": "Windowed focus view shows code and output only while keeping the Windows taskbar visible.",
+  "version": "1.3.3",
+  "notes": "Choose VS Code at Start to type code into a named VS Code project with its own terminal.",
   "files": [
     {
-      "path": "dist-electron/renderer/assets/index-BUk_bgfo.js",
-      "size": 413892,
-      "sha256": "7bbe6b2f53dba2ff046142f88106e8141dca25fa2828be6888526adcbb39fdc8"
+      "path": "dist-electron/renderer/assets/index-2eGOAuBY.js",
+      "size": 417973,
+      "sha256": "061986d17b89e904c15dfa3f35ce6687d2dd3b786d42dc9c98ec83be4faeaaca"
     },
     {
-      "path": "dist-electron/renderer/assets/index-Dg9o_sZq.css",
-      "size": 106509,
-      "sha256": "f44a5121389f849a96fd991cfecc9f1d11253cc6f536ba9b30b09df4b55ecef8"
+      "path": "dist-electron/renderer/assets/index-CzcLsTRD.css",
+      "size": 106691,
+      "sha256": "5392d412736466c7a9c6098ba5bcb34f5690c449052b411d5aa95461cfb303c2"
     },
     {
       "path": "dist-electron/renderer/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2",
@@ -165,7 +165,7 @@
     {
       "path": "dist-electron/renderer/index.html",
       "size": 559,
-      "sha256": "ba654da2207ba8cd5cd19792393f23de6a89e10754495781332beb9047f29b86"
+      "sha256": "577ca52967750b39bac2237c2070b322c5c6b9cdce8aad248cef87c6825e06f0"
     },
     {
       "path": "electron/icon.ico",
@@ -185,7 +185,7 @@
     {
       "path": "electron/nightshift-live.vsix",
       "size": 4295,
-      "sha256": "345cbf745139fe376d627745fcf57efacc8e14044971960ced0fbedff4356005"
+      "sha256": "1e6eca35828da705ddebc497f25545a348100254c606e72e3debb92ebf6f6ac5"
     },
     {
       "path": "electron/preload.cjs",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "6b63ad83f93c4bb34ed8f68b60f2615d5a3cab46ebfcae54cdabeedef3696b94"
+      "sha256": "5b805c21ffa7098c9608476ab6274ec83cdac9c5854a01a669de877206f2a160"
     }
   ]
 }

@@ -10,7 +10,7 @@ import {
   type AiConfig,
   type SessionConfig,
 } from "./engine";
-import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, mergeSettings, type LiveMode, type LiveSink } from "./live";
+import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, mergeSettings, parentFolder, sessionFolderName, type LiveMode, type LiveSink, type WriteTarget } from "./live";
 import { loadProject, runProjectRound } from "./project-runner";
 import type { ProjectState } from "./project";
 import { createPacer } from "./pacer";
@@ -42,6 +42,9 @@ interface Options {
   speed: { cps: number | null; humanLike: boolean };
   /** false = code is tested in a temporary folder and thrown away. */
   saveFiles: boolean;
+  /** "vscode" = code is typed only inside VS Code, in its own named session project. */
+  writeTarget?: WriteTarget;
+  projectName?: string;
   onTerminal: (text: string) => void;
   onSessionEnd?: (rec: SessionRecord) => void;
 }
@@ -114,6 +117,9 @@ export function useCodingSession(opts: Options) {
   const [plan, setPlan] = useState<ProjectState | null>(null);
   const [practice, setPractice] = useState(false);
   const [message, setMessage] = useState("Ready. Press Start coding.");
+  /** Set while this session writes into VS Code instead of the app. */
+  const [vscodeProject, setVscodeProject] = useState<{ name: string; folder: string; connected: string | null } | null>(null);
+  const vsRef = useRef<{ root: string; connected: boolean } | null>(null);
   const screenRef = useRef({ surface, file: currentFile });
   screenRef.current = { surface, file: currentFile };
 
@@ -187,6 +193,8 @@ export function useCodingSession(opts: Options) {
         reason,
       });
     }
+    vsRef.current = null;
+    setVscodeProject(null);
     setStartedAt(null);
   }, []);
 
@@ -197,6 +205,7 @@ export function useCodingSession(opts: Options) {
   const makeSink = useCallback(async (root: string): Promise<LiveSink | null> => {
     const { liveMode, followIde, typingCps, speed } = optsRef.current;
     const bridge = getBridge();
+    if (vsRef.current) return vsRef.current.connected ? createAddonSink(bridge, root) : null;
     if (liveMode === "addon") {
       const app = await bridge.ide.live.ping();
       return app ? createAddonSink(bridge, root) : null;
@@ -222,22 +231,27 @@ export function useCodingSession(opts: Options) {
     setCurrentFile({ name: snip.filename, language: snip.language });
     setSurface("");
     let shown = "";
+    const vs = vsRef.current?.connected ? vsRef.current.root : null;
+    const live = getBridge().ide.live;
+    if (vs) await live.begin(vs, snip.filename).catch(() => {});
     const pacer = createPacer(
       { cps: speed.cps === null ? PRACTICE_MAX_CPS : Math.min(speed.cps, PRACTICE_MAX_CPS * 2), humanLike: speed.humanLike },
       (c) => {
         shown += c;
         setSurface(shown);
+        if (vs) void live.append(c).catch(() => {});
       },
       alive,
     );
     pacer.push(snip.code);
     await pacer.drain();
+    if (vs) await live.end(vs, snip.filename, snip.code).catch(() => {});
     if (!alive()) return;
     statsRef.current.files++;
     statsRef.current.lines += snip.code.split("\n").length;
     setFiles((f) => [{ filename: snip.filename, path: "", language: snip.language, at: Date.now() + Math.random(), exitCode: undefined, kept: false, practice: true }, ...f].slice(0, 200));
     setStatus("resting");
-    setMessage(`Practice code: ${snip.filename} (shown only, not saved). Next one in ${session.pauseSeconds}s…`);
+    setMessage(vs ? `Typed ${snip.filename} in VS Code. Next one in ${session.pauseSeconds}s…` : `Practice code: ${snip.filename} (shown only, not saved). Next one in ${session.pauseSeconds}s…`);
     await sleep(session.pauseSeconds * 1000);
   }, []);
 
@@ -264,6 +278,35 @@ export function useCodingSession(opts: Options) {
       let stuckFile: string | undefined;
       let iter = 0;
 
+      vsRef.current = null;
+      setVscodeProject(null);
+      if (optsRef.current.writeTarget === "vscode") {
+        const name = sessionFolderName(optsRef.current.projectName ?? "");
+        setMessage(`Creating VS Code project "${name}"…`);
+        let vsRoot = "";
+        try {
+          const base = parentFolder(await raw.fs.defaultWorkspace());
+          const readme = await raw.fs.writeFile(base, `Sessions/${name}/README.md`, `# ${name}\n\nWritten live by NightShift Coder, started ${new Date().toLocaleString()}.\n`);
+          vsRoot = parentFolder(readme);
+        } catch (e) {
+          setMessage(`Could not create the VS Code project: ${(e as Error).message}`);
+        }
+        if (!alive()) return;
+        if (vsRoot) {
+          vsRef.current = { root: vsRoot, connected: false };
+          setVscodeProject({ name, folder: vsRoot, connected: null });
+          const editor = await connectEditor(raw, { root: vsRoot, preferred: optsRef.current.followIde, onNote: (m) => { if (alive()) setMessage(m); } }).catch(() => null);
+          if (!alive()) return;
+          vsRef.current = { root: vsRoot, connected: !!editor };
+          setVscodeProject({ name, folder: vsRoot, connected: editor });
+          if (editor) {
+            await raw.ide.live.term(`\x1bc\x1b[36m=== NightShift session: ${name} ===\x1b[0m\nFolder: ${vsRoot}\n`).catch(() => {});
+            setMessage(`Writing in ${editor} — project "${name}".`);
+          } else setMessage("VS Code didn't connect — showing the code here instead.");
+          root = vsRoot;
+        }
+      }
+
       setMessage("Checking the AI engine…");
       let engineOk = await aiReady(raw, optsRef.current.ai);
       if (!alive()) return;
@@ -273,7 +316,7 @@ export function useCodingSession(opts: Options) {
       }
       if (engineOk && !root) root = await (keep ? raw.fs.defaultWorkspace() : raw.fs.scratchDir()).catch(() => "");
       statsRef.current.root = root;
-      statsRef.current.kept = keep && !!root;
+      statsRef.current.kept = (keep || !!vsRef.current) && !!root;
 
       const git = { ok: false };
       if (engineOk && root) {
@@ -281,7 +324,7 @@ export function useCodingSession(opts: Options) {
         const code = await raw.terminal.run("git --version", root, 15, (t) => (out += t)).catch(() => null);
         git.ok = code === 0 && /git version/i.test(out);
       }
-      if (engineOk && root) {
+      if (engineOk && root && !vsRef.current) {
         const { liveMode, followIde } = optsRef.current;
         if (liveMode === "addon") {
           // Code is written inside VS Code: open the folder there and make sure the add-on is listening.
@@ -311,7 +354,7 @@ export function useCodingSession(opts: Options) {
             if (!root) root = await (keep ? raw.fs.defaultWorkspace() : raw.fs.scratchDir()).catch(() => "");
             statsRef.current.root = root;
             statsRef.current.kept = keep && !!root;
-            if (root && optsRef.current.liveMode === "addon") void connectEditor(raw, { root, preferred: followIde, onNote: (m) => { if (alive()) setMessage(m); } }).catch(() => null);
+            if (root && !vsRef.current && optsRef.current.liveMode === "addon") void connectEditor(raw, { root, preferred: followIde, onNote: (m) => { if (alive()) setMessage(m); } }).catch(() => null);
             setMessage("AI engine found — switching from practice code to real coding.");
           }
         }
@@ -473,6 +516,7 @@ export function useCodingSession(opts: Options) {
     reloadPlan,
     message,
     practice,
+    vscodeProject,
     start,
     stop,
     running: startedAt !== null,

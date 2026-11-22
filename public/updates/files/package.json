@@ -1,1 +1,1 @@
-{ "name": "nightshift-coder", "productName": "NightShift Coder", "version": "1.3.2", "description": "Offline AI coding bot", "main": "electron/main.cjs", "author": "NightShift Coder", "license": "MIT" }
+{ "name": "nightshift-coder", "productName": "NightShift Coder", "version": "1.3.3", "description": "Offline AI coding bot", "main": "electron/main.cjs", "author": "NightShift Coder", "license": "MIT" }

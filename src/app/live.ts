@@ -188,3 +188,19 @@ export async function connectEditor(
   }
   return app;
 }
+
+export type WriteTarget = "app" | "vscode";
+
+/** Folder name for a VS Code session project: keeps letters, digits, spaces, - and _; never empty. */
+export function sessionFolderName(name: string, now = new Date()): string {
+  const clean = name.replace(/[^\p{L}\p{N} _-]+/gu, " ").replace(/\s+/g, " ").trim().slice(0, 60).trim();
+  if (clean) return clean;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `Session ${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+/** Folder that contains a file path returned by fs.writeFile (works with / and \\). */
+export function parentFolder(abs: string): string {
+  const i = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+  return i > 0 ? abs.slice(0, i) : abs;
+}

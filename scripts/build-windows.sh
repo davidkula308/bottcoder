@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.3.2}"
-NOTES="${NOTES:-Windowed focus view shows code and output only while keeping the Windows taskbar visible.}"
+VERSION="${VERSION:-1.3.3}"
+NOTES="${NOTES:-Choose VS Code at Start to type code into a named VS Code project with its own terminal.}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"
