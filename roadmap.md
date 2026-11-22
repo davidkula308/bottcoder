@@ -33,3 +33,11 @@ Windows-only installation, real keystrokes, and local AI downloads still need a 
 - [x] Add Fetch updates from the published site, installing safely between coding sessions
 - [x] Verify the update flow and create the refreshed Windows installer/update feed
 - [x] Windowed focus view: code and output only, no native fullscreen, taskbar stays visible
+
+## Continuous VS Code coding + Excel + Install page
+- [ ] VS Code: option to keep using the same project folder and the same NightShift terminal (no new one per file/session)
+- [ ] Never stop on errors: skip failing code (no fix loops), continue or start fresh code, in every mode (random, strategic, project, website)
+- [ ] Look like a person is using the PC: real keystrokes in VS Code option + mouse moves/clicks inside the VS Code window
+- [ ] Activity apps: any interval (no 30-min minimum), number of times, Excel in the list
+- [ ] Excel: open a new workbook, type a meaningful random task into cells, stay the chosen time, save, close; ignore failures
+- [ ] Install tab: download the latest Windows installer from the website (kept current on every publish), detect installed app → check for updates
