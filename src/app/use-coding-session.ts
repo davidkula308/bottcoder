@@ -10,7 +10,7 @@ import {
   type AiConfig,
   type SessionConfig,
 } from "./engine";
-import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, mergeSettings, parentFolder, sessionFolderName, type LiveMode, type LiveSink, type WriteTarget } from "./live";
+import { VSCODE_FAMILY, connectEditor, createAddonSink, createKeyboardSink, createLiveWriter, mergeSettings, parentFolder, sessionFolderName, type LiveMode, type LiveSink, type WriteTarget } from "./live";
 import { loadProject, runProjectRound } from "./project-runner";
 import type { ProjectState } from "./project";
 import { createPacer } from "./pacer";
@@ -232,20 +232,20 @@ export function useCodingSession(opts: Options) {
     setSurface("");
     let shown = "";
     const vs = vsRef.current?.connected ? vsRef.current.root : null;
-    const live = getBridge().ide.live;
-    if (vs) await live.begin(vs, snip.filename).catch(() => {});
+    const live = createLiveWriter(getBridge().ide.live);
+    if (vs) void live.begin(vs, snip.filename);
     const pacer = createPacer(
       { cps: speed.cps === null ? PRACTICE_MAX_CPS : Math.min(speed.cps, PRACTICE_MAX_CPS * 2), humanLike: speed.humanLike },
       (c) => {
         shown += c;
         setSurface(shown);
-        if (vs) void live.append(c).catch(() => {});
+        if (vs) live.append(c);
       },
       alive,
     );
     pacer.push(snip.code);
     await pacer.drain();
-    if (vs) await live.end(vs, snip.filename, snip.code).catch(() => {});
+    if (vs) await live.end(vs, snip.filename, snip.code);
     if (!alive()) return;
     statsRef.current.files++;
     statsRef.current.lines += snip.code.split("\n").length;

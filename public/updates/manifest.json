@@ -1,16 +1,16 @@
 {
-  "version": "1.3.3",
-  "notes": "Choose VS Code at Start to type code into a named VS Code project with its own terminal.",
+  "version": "1.3.4",
+  "notes": "VS Code typing now follows the speed chosen in the app without falling behind.",
   "files": [
-    {
-      "path": "dist-electron/renderer/assets/index-2eGOAuBY.js",
-      "size": 417973,
-      "sha256": "061986d17b89e904c15dfa3f35ce6687d2dd3b786d42dc9c98ec83be4faeaaca"
-    },
     {
       "path": "dist-electron/renderer/assets/index-CzcLsTRD.css",
       "size": 106691,
       "sha256": "5392d412736466c7a9c6098ba5bcb34f5690c449052b411d5aa95461cfb303c2"
+    },
+    {
+      "path": "dist-electron/renderer/assets/index-D11Wobnj.js",
+      "size": 418181,
+      "sha256": "5237d0b596364c2706c75dc399520abf50f9d5d9a82ebe8788fa4d35e30aea31"
     },
     {
       "path": "dist-electron/renderer/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2",
@@ -165,7 +165,7 @@
     {
       "path": "dist-electron/renderer/index.html",
       "size": 559,
-      "sha256": "577ca52967750b39bac2237c2070b322c5c6b9cdce8aad248cef87c6825e06f0"
+      "sha256": "f4022ab62f661afe63eb34fbbfb58f8c646dcbc66f527937b8ee8bcf3ba9d656"
     },
     {
       "path": "electron/icon.ico",
@@ -185,7 +185,7 @@
     {
       "path": "electron/nightshift-live.vsix",
       "size": 4295,
-      "sha256": "1e6eca35828da705ddebc497f25545a348100254c606e72e3debb92ebf6f6ac5"
+      "sha256": "ddab0cd4b28aa43d09c7feca86318612e7e1be728e5160073f30ec745c7651be"
     },
     {
       "path": "electron/preload.cjs",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "5b805c21ffa7098c9608476ab6274ec83cdac9c5854a01a669de877206f2a160"
+      "sha256": "f176415170921ad83e65448554af4c2248a5730a908d471a491b52e055901ac1"
     }
   ]
 }

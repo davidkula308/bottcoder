@@ -75,16 +75,53 @@ function createDeltaTracker(onBegin: (rel: string) => void, onDelta: (text: stri
   };
 }
 
+type LiveApi = DesktopBridge["ide"]["live"];
+
+/**
+ * Sends typed text to VS Code without falling behind the chosen speed: while one piece is on its way,
+ * newly typed characters are gathered and sent together. Order is always kept, so VS Code shows the
+ * same text at the same pace as the app.
+ */
+export function createLiveWriter(live: LiveApi) {
+  let chain: Promise<unknown> = Promise.resolve();
+  let open: { text: string } | null = null;
+  const send = (fn: () => Promise<unknown>) => (chain = chain.then(fn).catch(() => {}));
+  return {
+    begin(root: string, rel: string) {
+      open = null;
+      return send(() => live.begin(root, rel));
+    },
+    append(text: string) {
+      if (!text) return;
+      if (open) {
+        open.text += text;
+        return;
+      }
+      const seg = { text };
+      open = seg;
+      void send(async () => {
+        if (open === seg) open = null;
+        await live.append(seg.text);
+      });
+    },
+    end(root: string, rel: string, content: string) {
+      open = null;
+      return send(() => live.end(root, rel, content));
+    },
+  };
+}
+
 export function createAddonSink(bridge: DesktopBridge, root: string): LiveSink {
+  const writer = createLiveWriter(bridge.ide.live);
   const track = createDeltaTracker(
-    (rel) => void bridge.ide.live.begin(root, rel).catch(() => {}),
-    (d) => void bridge.ide.live.append(d).catch(() => {}),
+    (rel) => void writer.begin(root, rel),
+    (d) => writer.append(d),
   );
   return {
     opensEditor: true,
     onText: track,
     async finish(rel, content) {
-      await bridge.ide.live.end(root, rel, content).catch(() => {});
+      await writer.end(root, rel, content);
     },
   };
 }
