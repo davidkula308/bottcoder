@@ -1,6 +1,6 @@
 {
-  "version": "1.3.4",
-  "notes": "VS Code typing now follows the speed chosen in the app without falling behind.",
+  "version": "1.3.5",
+  "notes": "Typing in VS Code no longer stalls when VS Code is busy or the AI goes silent.",
   "files": [
     {
       "path": "dist-electron/renderer/assets/index-CzcLsTRD.css",
@@ -8,9 +8,9 @@
       "sha256": "5392d412736466c7a9c6098ba5bcb34f5690c449052b411d5aa95461cfb303c2"
     },
     {
-      "path": "dist-electron/renderer/assets/index-D11Wobnj.js",
-      "size": 418181,
-      "sha256": "5237d0b596364c2706c75dc399520abf50f9d5d9a82ebe8788fa4d35e30aea31"
+      "path": "dist-electron/renderer/assets/index-YtTsWmRR.js",
+      "size": 418746,
+      "sha256": "7f2518f81d85d2f7a0484b681a6180f1c250ec8fc9a71a5c08d5c3a77e4ab518"
     },
     {
       "path": "dist-electron/renderer/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2",
@@ -165,7 +165,7 @@
     {
       "path": "dist-electron/renderer/index.html",
       "size": 559,
-      "sha256": "f4022ab62f661afe63eb34fbbfb58f8c646dcbc66f527937b8ee8bcf3ba9d656"
+      "sha256": "932bb8e3e7df232f2a04145ab471b7ddb7eadf528b575203d105e733a0d5a215"
     },
     {
       "path": "electron/icon.ico",
@@ -179,13 +179,13 @@
     },
     {
       "path": "electron/main.cjs",
-      "size": 35838,
-      "sha256": "1c9c706896d8ec6e6150d8a3e6e01aef88f3051d905a36da6885d1334a362edc"
+      "size": 35985,
+      "sha256": "7528791e8a1a780b3ea8ebb624349313b064a0788afa3f378722292242256338"
     },
     {
       "path": "electron/nightshift-live.vsix",
       "size": 4295,
-      "sha256": "ddab0cd4b28aa43d09c7feca86318612e7e1be728e5160073f30ec745c7651be"
+      "sha256": "3687093a6087909f4abf10dfec46aad6fd655c9a9d2496066e818dc4659337e1"
     },
     {
       "path": "electron/preload.cjs",
@@ -200,7 +200,7 @@
     {
       "path": "package.json",
       "size": 203,
-      "sha256": "f176415170921ad83e65448554af4c2248a5730a908d471a491b52e055901ac1"
+      "sha256": "158aed9280584413a5f842b907f9660f92e4997031b9c632d3552196698f8a3e"
     }
   ]
 }

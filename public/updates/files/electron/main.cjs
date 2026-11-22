@@ -854,10 +854,12 @@ let liveQueue = Promise.resolve();
 function livePost(route, body) {
   liveQueue = liveQueue
     .then(() =>
+      // A busy or reloading VS Code must not stall typing: give up on one piece after 4s and carry on.
       fetch(`${LIVE_URL}${route}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(4000),
       }),
     )
     .catch(() => {});

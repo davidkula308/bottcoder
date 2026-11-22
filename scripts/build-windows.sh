@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="${TOOLS:-/tmp/pkgtools}"
 OUT="${OUT:-/tmp/ns-out}"
-VERSION="${VERSION:-1.3.4}"
-NOTES="${NOTES:-VS Code typing now follows the speed chosen in the app without falling behind.}"
+VERSION="${VERSION:-1.3.5}"
+NOTES="${NOTES:-Typing in VS Code no longer stalls when VS Code is busy or the AI goes silent.}"
 ELECTRON="${ELECTRON:-33.4.11}"
 
 cd "$ROOT"

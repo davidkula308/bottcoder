@@ -16,6 +16,7 @@ import type { ProjectState } from "./project";
 import { createPacer } from "./pacer";
 import { writePractice } from "./practice";
 import { hasModel } from "./setup";
+import { guardStall } from "./watchdog";
 import type { SessionRecord } from "./history";
 
 export type BotStatus = "idle" | "thinking" | "writing" | "running" | "resting" | "error";
@@ -67,6 +68,22 @@ function saveUsed(used: Set<string>) {
   } catch {
     /* storage full — not important */
   }
+}
+
+/** A silent AI (stuck model, PC under load) must not pause coding forever: give up and move on. */
+function withStallGuard(bridge: DesktopBridge): DesktopBridge {
+  return {
+    ...bridge,
+    ai: {
+      ...bridge.ai,
+      generate: (req, onChunk) =>
+        guardStall((progress) => bridge.ai.generate(req, (c) => { progress(); onChunk(c); }), {
+          firstMs: 75_000,
+          gapMs: 30_000,
+          onStall: () => void bridge.ai.cancel().catch(() => {}),
+        }),
+    },
+  };
 }
 
 /** Same bridge, but AI text arrives at the chosen typing speed. */
@@ -261,7 +278,7 @@ export function useCodingSession(opts: Options) {
       const myRun = ++runRef.current;
       const begin = Date.now() - Math.max(0, resumeElapsedMs);
       const alive = () => runRef.current === myRun;
-      const bridge = withPacing(raw, optsRef.current.speed, alive);
+      const bridge = withPacing(withStallGuard(raw), optsRef.current.speed, alive);
       setStartedAt(begin);
       setNow(Date.now());
       setFiles([]);
@@ -277,6 +294,8 @@ export function useCodingSession(opts: Options) {
       let lastExit: number | null | undefined;
       let stuckFile: string | undefined;
       let iter = 0;
+      let aiCheck: Promise<void> | null = null;
+      let aiFound = false;
 
       vsRef.current = null;
       setVscodeProject(null);
@@ -348,9 +367,14 @@ export function useCodingSession(opts: Options) {
         setIteration(iter);
 
         // No AI: keep writing practice code, and look for the AI again every few programs.
-        if (!engineOk && iter % 5 === 0) {
-          engineOk = await aiReady(raw, ai);
-          if (engineOk) {
+        if (!engineOk && !aiCheck && iter % 5 === 0) {
+          // Checked in the background so the typing never waits for it.
+          aiCheck = aiReady(raw, ai).then((ok) => { aiFound = ok; aiCheck = null; });
+        }
+        if (!engineOk && aiFound) {
+          aiFound = false;
+          engineOk = true;
+          {
             if (!root) root = await (keep ? raw.fs.defaultWorkspace() : raw.fs.scratchDir()).catch(() => "");
             statsRef.current.root = root;
             statsRef.current.kept = keep && !!root;
